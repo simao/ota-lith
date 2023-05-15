@@ -32,7 +32,7 @@ enablePlugins(BuildInfoPlugin, GitVersioning, JavaAppPackaging)
 buildInfoOptions += BuildInfoOption.ToMap
 buildInfoOptions += BuildInfoOption.BuildTime
 
-mainClass in Compile := Some("com.advancedtelematic.ota_lith.OtaLithBoot")
+Compile / mainClass := Some("com.advancedtelematic.ota_lith.OtaLithBoot")
 
 import com.typesafe.sbt.packager.docker._
 import sbt.Keys._
@@ -41,27 +41,19 @@ import DockerPlugin.autoImport._
 import com.typesafe.sbt.SbtNativePackager.autoImport._
 import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
 
-dockerRepository in Docker := Some("uptane")
+Docker / dockerRepository  := Some("uptane")
 
-packageName in Docker := packageName.value
+Docker / packageName := packageName.value
 
 dockerUpdateLatest := true
 
 dockerAliases ++= Seq(dockerAlias.value.withTag(git.gitHeadCommit.value))
 
-defaultLinuxInstallLocation in Docker := s"/opt/${moduleName.value}"
+dockerBaseImage := "eclipse-temurin:17.0.3_7-jre-jammy"
 
-dockerCommands := Seq(
-  Cmd("FROM", "advancedtelematic/alpine-jre:adoptopenjdk-jre8u262-b10"),
-  ExecCmd("RUN", "mkdir", "-p", s"/var/log/${moduleName.value}"),
-  Cmd("ADD", "opt /opt"),
-  Cmd("WORKDIR", s"/opt/${moduleName.value}"),
-  ExecCmd("ENTRYPOINT", s"/opt/${moduleName.value}/bin/${moduleName.value}"),
-  Cmd("RUN", s"chown -R daemon:daemon /opt/${moduleName.value}"),
-  Cmd("RUN", s"mkdir /var/lib/${moduleName.value}"),
-  Cmd("RUN", s"chown -R daemon:daemon /var/lib/${moduleName.value}"),
-  Cmd("RUN", s"chown -R daemon:daemon /var/log/${moduleName.value}"),
-  Cmd("USER", "daemon")
-)
+dockerUpdateLatest := true
+
+Docker / daemonUser := "daemon"
 
 // fork := true // TODO: Not compatible with .properties ?
+
