@@ -2,7 +2,6 @@ package com.advancedtelematic.tuf.reposerver.http
 
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-
 import org.scalatest.EitherValues._
 import akka.http.scaladsl.model.Multipart.FormData.BodyPart
 import akka.http.scaladsl.model._
@@ -14,8 +13,8 @@ import cats.syntax.either._
 import cats.syntax.option._
 import cats.syntax.show._
 import com.advancedtelematic.libats.codecs.CirceCodecs._
-import com.advancedtelematic.libats.data.DataType.HashMethod
-import com.advancedtelematic.libats.data.ErrorRepresentation
+import com.advancedtelematic.libats.data.DataType.{HashMethod, Namespace}
+import com.advancedtelematic.libats.data.{ErrorRepresentation, PaginationResult}
 import com.advancedtelematic.libats.data.RefinedUtils.RefineTry
 import com.advancedtelematic.libats.http.Errors.RawError
 import com.advancedtelematic.libtuf.crypt.CanonicalJson._
@@ -28,6 +27,7 @@ import com.advancedtelematic.libtuf.data.TufDataType.{RepoId, RoleType, _}
 import com.advancedtelematic.libtuf_server.crypto.Sha256Digest
 import com.advancedtelematic.libtuf_server.data.Requests._
 import com.advancedtelematic.libtuf_server.keyserver.KeyserverClient
+import com.advancedtelematic.libtuf_server.repo.client.ReposerverClient.EditTargetItem
 import com.advancedtelematic.libtuf_server.repo.server.DataType.SignedRole
 import com.advancedtelematic.tuf.reposerver.db.SignedRoleDbTestUtil._
 import com.advancedtelematic.tuf.reposerver.db.SignedRoleRepositorySupport
@@ -47,6 +47,8 @@ import org.scalatest.{Assertion, BeforeAndAfterAll, Inspectors}
 import scala.concurrent.Future
 import org.scalatest.OptionValues._
 
+import java.net.URI
+
 class RepoResourceSpec extends TufReposerverSpec with RepoResourceSpecUtil
   with ResourceSpec with BeforeAndAfterAll with Inspectors with Whenever with PatienceConfiguration with SignedRoleRepositorySupport {
 
@@ -65,6 +67,12 @@ class RepoResourceSpec extends TufReposerverSpec with RepoResourceSpecUtil
 
     val isValid = TufCrypto.isValid(signature, fakeKeyserverClient.publicKey(repoId, roleType), signed)
     isValid shouldBe true
+  }
+
+  def createRepo()(implicit ns: NamespaceTag): Unit = {
+    Post(apiUri(s"user_repo")).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+    }
   }
 
   test("POST returns latest signed json") {
@@ -193,6 +201,14 @@ class RepoResourceSpec extends TufReposerverSpec with RepoResourceSpecUtil
 
     Get(apiUri(s"repo/${newRepoId.show}/root.json")) ~> routes ~> check {
       status shouldBe StatusCodes.FailedDependency
+    }
+  }
+
+  test("GET on 1.root.json fails if not available on keyserver") {
+    val newRepoId = RepoId.generate()
+
+    Get(apiUri(s"repo/${newRepoId.show}/1.root.json")) ~> routes ~> check {
+      status shouldBe StatusCodes.NotFound
     }
   }
 
@@ -677,7 +693,7 @@ class RepoResourceSpec extends TufReposerverSpec with RepoResourceSpecUtil
       status shouldBe StatusCodes.OK
     }
 
-    val payload = io.circe.jawn.parse("""{"param0":0,"param1":{"nested1":1,"nested2":"mystring"}}""").right.value
+    val payload = io.circe.jawn.parse("""{"param0":0,"param1":{"nested1":1,"nested2":"mystring"}}""").value
 
     Patch(apiUri(s"repo/${repoId.show}/proprietary-custom/${targetFilename.value}"), payload) ~> routes ~> check {
       status shouldBe StatusCodes.NoContent
@@ -1250,6 +1266,281 @@ class RepoResourceSpec extends TufReposerverSpec with RepoResourceSpecUtil
     Put(apiUri(s"repo/${repoId.show}/uploads/some/target/thing")).withHeaders(`Content-Length`(1024)) ~> routes ~> check {
       status shouldBe StatusCodes.Conflict
       responseAs[ErrorRepresentation].description should include("Entity already exists")
+    }
+  }
+
+  test("targets.json expire date is set according to expired-not-before") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+
+      val notBefore = Instant.now().plus(30 * 6, ChronoUnit.DAYS)
+
+      Put(apiUri(s"user_repo/targets/expire/not-before"), ExpireNotBeforeRequest(notBefore)).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.NoContent
+      }
+
+      Get(apiUri(s"user_repo/targets.json")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetsRole = responseAs[SignedPayload[TargetsRole]].signed
+        targetsRole.expires.isAfter(notBefore.minusSeconds(1)) shouldBe true
+      }
+    }
+  }
+
+  test("targets.json is refreshed on GET if current expire date is earlier than set expires-not-before") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+
+      val notBefore = Instant.now().plus(30 * 6, ChronoUnit.DAYS)
+
+      val initialVersion = Get(apiUri(s"user_repo/targets.json")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]].signed.version
+      }
+
+      Put(apiUri(s"user_repo/targets/expire/not-before"), ExpireNotBeforeRequest(notBefore)).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.NoContent
+      }
+
+      Get(apiUri(s"user_repo/targets.json")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetsRole = responseAs[SignedPayload[TargetsRole]].signed
+        targetsRole.version shouldBe initialVersion+1
+        targetsRole.expires.isAfter(notBefore.minusSeconds(1)) shouldBe true
+      }
+    }
+  }
+
+  test("targets.json expire date is set according to expires-not-before when adding a target") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+
+      val notBefore = Instant.now().plus(30 * 6, ChronoUnit.DAYS)
+
+      Get(apiUri(s"user_repo/targets.json")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Put(apiUri(s"user_repo/targets/expire/not-before"), ExpireNotBeforeRequest(notBefore)).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.NoContent
+      }
+
+      Put(apiUri(s"user_repo/targets/some/target/thing?name=name&version=version"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Get(apiUri(s"user_repo/targets.json")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetsRole = responseAs[SignedPayload[TargetsRole]].signed
+        targetsRole.expires.isAfter(notBefore.minusSeconds(1)) shouldBe true
+      }
+    }
+  }
+  test("can fetch single targets_item") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+      // Create package
+      Put(apiUri(s"user_repo/targets/cheerios-0.0.5?name=cheerios&version=0.0.5"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+
+      // fetch it
+      Get(apiUri(s"user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+      }
+    }
+  }
+  test("can fetch all target_items when pattern parameter is excluded") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+      // create packages
+      Put(apiUri(s"user_repo/targets/cheerios-0.0.5?name=cheerios&version=0.0.5"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      Put(apiUri(s"user_repo/targets/cheerios-0.0.6?name=cheerios&version=0.0.6"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      Put(apiUri(s"user_repo/targets/riceKrispies-0.0.1?name=riceKrispies&version=0.0.1"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      // fetch them
+      Get(apiUri(s"user_repo/target_items")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustoms = responseAs[PaginationResult[ClientTargetItem]].map { clientTargetItem =>
+          clientTargetItem.custom.asJson.as[TargetCustom] match {
+            case Right(custom) => custom
+            case Left(err) => println(s"Failed to parse json. Error: ${err.toString}"); throw err
+          }
+        }
+        val nameVersionTuple = targetCustoms.values.map(custom => (custom.name.value, custom.version.value))
+        nameVersionTuple should contain("cheerios", "0.0.5")
+        nameVersionTuple should contain("cheerios", "0.0.6")
+        nameVersionTuple should contain("riceKrispies", "0.0.1")
+      }
+    }
+  }
+  test("can search target_items with pattern and get expected output") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+      // create packages
+      Put(apiUri(s"user_repo/targets/cheerios-0.0.5?name=cheerios&version=0.0.5"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      Put(apiUri(s"user_repo/targets/cheerios-0.0.6?name=cheerios&version=0.0.6"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      Put(apiUri(s"user_repo/targets/riceKrispies-0.0.1?name=riceKrispies&version=0.0.1"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      // fetch them
+      Get(apiUri(s"user_repo/target_items?nameContains=cheerios")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustoms = responseAs[PaginationResult[ClientTargetItem]].map { clientTargetItem =>
+          clientTargetItem.custom.asJson.as[TargetCustom] match {
+            case Right(custom) => custom
+            case Left(err) => println(s"Failed to parse json. Error: ${err.toString}"); throw err
+          }
+        }
+        val nameVersionTuple = targetCustoms.values.map(custom => (custom.name.value, custom.version.value))
+        nameVersionTuple should contain("cheerios", "0.0.5")
+        nameVersionTuple should contain("cheerios", "0.0.6")
+        nameVersionTuple should not contain("riceKrispies", "0.0.1")
+      }
+    }
+  }
+  test("can edit single targets_item uri") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+      // Create package
+      Put(apiUri("user_repo/targets/cheerios-0.0.5?name=cheerios&version=0.0.5"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      // fetch it
+      Get(apiUri("user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds shouldBe empty
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+      // edit it
+      val testUri = URI.create("https://toradex.com")
+      val editBody = EditTargetItem(uri = Some(testUri))
+      Patch(apiUri("user_repo/targets/cheerios-0.0.5"), editBody).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe Some(testUri)
+        targetCustom.hardwareIds shouldBe empty
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+      // fetch it
+      Get(apiUri("user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe Some(testUri)
+        targetCustom.hardwareIds shouldBe empty
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+    }
+  }
+
+  test("can edit single targets_item hardwareIds") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+      // Create package
+      Put(apiUri("user_repo/targets/cheerios-0.0.5?name=cheerios&version=0.0.5"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      // fetch it
+      Get(apiUri("user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds shouldBe empty
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+      val editBody = EditTargetItem(hardwareIds = Seq[HardwareIdentifier](Refined.unsafeApply("foo")))
+      Patch(apiUri("user_repo/targets/cheerios-0.0.5"), editBody).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds should contain (Refined.unsafeApply("foo"))
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+      // fetch it
+      Get(apiUri("user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds should contain (Refined.unsafeApply("foo"))
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+    }
+  }
+  test("can edit single targets_item proprietary custom json") {
+    withRandomNamepace { implicit ns =>
+      createRepo()
+      // Create package
+      Put(apiUri("user_repo/targets/cheerios-0.0.5?name=cheerios&version=0.0.5"), form).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[SignedPayload[TargetsRole]]
+      }
+      // fetch it
+      Get(apiUri("user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds shouldBe empty
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe true)
+      }
+      // edit it
+      val editBody = EditTargetItem(proprietaryCustom = Some(Map[String, String]("foo" -> "bar").asJson))
+      Patch(apiUri("user_repo/targets/cheerios-0.0.5"), editBody).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds shouldBe empty
+        println(s"BEN SAYS, proprietary json is: ${targetCustom.proprietary.noSpaces}")
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe false)
+      }
+      // fetch it
+      Get(apiUri("user_repo/target_items/cheerios-0.0.5")).namespaced ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val targetCustom = responseAs[ClientTargetItem].custom.asJson.as[TargetCustom].value
+        targetCustom.name.value shouldBe "cheerios"
+        targetCustom.version.value shouldBe "0.0.5"
+        targetCustom.uri shouldBe empty
+        targetCustom.hardwareIds shouldBe empty
+        targetCustom.proprietary.asObject.map(_.isEmpty shouldBe false)
+      }
     }
   }
 

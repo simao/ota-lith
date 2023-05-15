@@ -11,9 +11,9 @@ lazy val UnitTest = config("ut").extend(Test)
 lazy val commonConfigs = Seq(ItTest, UnitTest)
 
 lazy val commonDeps = libraryDependencies ++= {
-  val scalaTestV = "3.2.10"
+  val scalaTestV = "3.2.15"
   lazy val libatsV = libatsVersion.value
-  lazy val catsV = "2.6.1"
+  lazy val catsV = "2.9.0"
 
   Seq(
     "org.scala-lang.modules" %% "scala-async" % "0.9.6",
@@ -24,7 +24,7 @@ lazy val commonDeps = libraryDependencies ++= {
 }
 
 lazy val serverDependencies = libraryDependencies ++= {
-  lazy val akkaV = "2.6.17"
+  lazy val akkaV = "2.6.18"
   lazy val akkaHttpV = "10.2.7"
   lazy val libatsV = libatsVersion.value
   lazy val slickV = "3.2.3"
@@ -36,7 +36,7 @@ lazy val serverDependencies = libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-http" % akkaHttpV,
     "com.typesafe.akka" %% "akka-slf4j" % akkaV,
     "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpV % "test",
-    "com.softwaremill.sttp.client" %% "akka-http-backend" % "2.2.10" % "test",
+    "com.softwaremill.sttp.client" %% "akka-http-backend" % "2.3.0" % "test",
 
     "io.github.uptane" %% "libats-http" % libatsV,
     "io.github.uptane" %% "libats-http-tracing" % libatsV,
@@ -47,7 +47,7 @@ lazy val serverDependencies = libraryDependencies ++= {
     "io.github.uptane" %% "libats-logging" % libatsV,
     "com.typesafe.slick" %% "slick" % slickV,
     "com.typesafe.slick" %% "slick-hikaricp" % slickV,
-    "org.mariadb.jdbc" % "mariadb-java-client" % "2.7.4"
+    "org.mariadb.jdbc" % "mariadb-java-client" % "3.1.4"
   )
 }
 
@@ -61,7 +61,7 @@ lazy val commonSettings = Seq(
   Compile / console / scalacOptions ~= (_.filterNot(_ == "-Ywarn-unused-import")),
   resolvers += "sonatype-snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots",
   resolvers += "sonatype-releases" at "https://s01.oss.sonatype.org/content/repositories/releases",
-  libatsVersion := "2.0.3",
+  libatsVersion := "2.0.10",
   licenses += ("MPL-2.0", url("http://mozilla.org/MPL/2.0/")),
   description := "scala tuf implementation support",
   buildInfoOptions += BuildInfoOption.ToMap,
@@ -128,10 +128,10 @@ lazy val cli = (project in file("cli"))
   .settings(Publish.disable)
   .settings(BuildInfoSettings("com.advancedtelematic.tuf.cli"))
   .settings(
-    topLevelDirectory := Some("garage-sign"),
-    executableScriptName := "garage-sign",
+    topLevelDirectory := Some("uptane-sign"),
+    executableScriptName := "uptane-sign",
     Universal / mappings += (file("cli/LICENSE") -> "docs/LICENSE"),
-    libraryDependencies += "com.typesafe" % "config" % "1.4.1" % Test)
+    libraryDependencies += "com.typesafe" % "config" % "1.4.2" % Test)
   .dependsOn(libtuf)
 
 lazy val ota_tuf = (project in file("."))

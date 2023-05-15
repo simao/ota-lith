@@ -11,6 +11,7 @@ import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
 object Packaging {
   def docker(distPackageName: String) = {
     Seq(
+
       Docker / dockerRepository := Some("advancedtelematic"),
 
       Docker / packageName := distPackageName,
@@ -21,16 +22,9 @@ object Packaging {
 
       Docker / defaultLinuxInstallLocation := s"/opt/${moduleName.value}",
 
-      dockerCommands := Seq(
-        Cmd("FROM", "advancedtelematic/alpine-jre:adoptopenjdk-jre8u262-b10"),
-        ExecCmd("RUN", "mkdir", "-p", s"/var/log/${moduleName.value}"),
-        Cmd("ADD", "opt /opt"),
-        Cmd("WORKDIR", s"/opt/${moduleName.value}"),
-        ExecCmd("ENTRYPOINT", s"/opt/${moduleName.value}/bin/${moduleName.value}"),
-        Cmd("RUN", s"chown -R daemon:daemon /opt/${moduleName.value}"),
-        Cmd("RUN", s"chown -R daemon:daemon /var/log/${moduleName.value}"),
-        Cmd("USER", "daemon")
-      )
+      dockerBaseImage := "eclipse-temurin:17.0.3_7-jre-jammy",
+
+      Docker / daemonUser := "daemon"
     )
   }
 }

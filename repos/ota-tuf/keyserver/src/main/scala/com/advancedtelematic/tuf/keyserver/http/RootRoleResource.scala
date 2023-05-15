@@ -22,6 +22,7 @@ import io.circe.syntax._
 import slick.jdbc.MySQLProfile.api._
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
 
 class RootRoleResource()
                       (implicit val db: Database, val ec: ExecutionContext, mat: Materializer)
@@ -39,9 +40,10 @@ class RootRoleResource()
 
     val keyGenerationOp = DefaultKeyGenerationOp()
 
-    val f = for { // ERROR is uses so the daemon doesn't pickup this request
+    val f = for { // use ERROR so the daemon doesn't pickup this request
       reqs <- keyGenerationRequests.createDefaultGenRequest(repoId, genRequest.threshold, genRequest.keyType, KeyGenRequestStatus.ERROR)
       _ <- Future.traverse(reqs)(keyGenerationOp)
+      _ <- signedRootRoles.findFreshAndPersist(repoId) // Force generation of root.json role now
     } yield StatusCodes.Created -> reqs.map(_.id)
 
     complete(f)
@@ -86,7 +88,24 @@ class RootRoleResource()
         complete(f)
       } ~
       path(IntNumber) { version =>
-        complete(signedRootRoles.findByVersion(repoId, version))
+        onComplete(signedRootRoles.findByVersion(repoId, version)) {
+          case Success(role) =>
+            complete(role)
+
+          case Failure(notFoundErr @ SignedRootRoleRepository.MissingSignedRole) =>
+            onSuccess(signedRootRoles.findFreshAndPersist(repoId)) { latestRoot =>
+              if(latestRoot.signed.version == version)
+                complete(latestRoot)
+              else {
+                val notFoundErrRepr = ErrorRepresentation(notFoundErr.code, notFoundErr.msg, None, Option(notFoundErr.errorId)).asJson
+                val refreshErr = ErrorRepresentation(notFoundErr.code, "Root role not found and role not refreshed", Option(notFoundErrRepr), Option(notFoundErr.errorId))
+                complete(StatusCodes.NotFound -> refreshErr.asJson) // Avoids logging error by returning ready respond instead of using failWith
+              }
+            }
+
+          case Failure(ex) =>
+            failWith(ex)
+        }
       } ~
       pathPrefix("private_keys") {
         path(KeyIdPath) { keyId =>
@@ -109,6 +128,13 @@ class RootRoleResource()
       (path("roles" / "offline-updates") & put) {
         val f = for {
           _ <- signedRootRoles.addRolesIfNotPresent(repoId, RoleType.OFFLINE_UPDATES, RoleType.OFFLINE_SNAPSHOT)
+        } yield StatusCodes.OK
+
+        complete(f)
+      } ~
+      (path("roles" / "remote-sessions") & put) {
+        val f = for {
+          _ <- signedRootRoles.addRolesIfNotPresent(repoId, RoleType.REMOTE_SESSIONS)
         } yield StatusCodes.OK
 
         complete(f)

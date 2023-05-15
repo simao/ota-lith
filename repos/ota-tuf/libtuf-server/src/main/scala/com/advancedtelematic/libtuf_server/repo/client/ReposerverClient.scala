@@ -1,8 +1,6 @@
 package com.advancedtelematic.libtuf_server.repo.client
 
 import java.util.UUID
-
-
 import akka.actor.ActorSystem
 import akka.http.scaladsl.marshalling.Marshal
 import akka.http.scaladsl.model.Uri.Path.Slash
@@ -14,7 +12,7 @@ import akka.stream.Materializer
 import akka.stream.scaladsl.Source
 import akka.util.ByteString
 import com.advancedtelematic.libats.data.DataType.{Checksum, Namespace}
-import com.advancedtelematic.libats.data.ErrorCode
+import com.advancedtelematic.libats.data.{ErrorCode, PaginationResult}
 import com.advancedtelematic.libats.http.Errors.{RawError, RemoteServiceError}
 import com.advancedtelematic.libats.http.HttpCodecs._
 import com.advancedtelematic.libats.http.tracing.Tracing.ServerRequestTracing
@@ -23,18 +21,21 @@ import com.advancedtelematic.libats.http.ServiceHttpClientSupport
 import com.advancedtelematic.libtuf.data.ClientCodecs._
 import com.advancedtelematic.libtuf.data.TufCodecs._
 import com.advancedtelematic.libtuf.data.TufDataType.TargetFormat.TargetFormat
-import com.advancedtelematic.libtuf.data.TufDataType.{HardwareIdentifier, KeyType, RepoId, SignedPayload, TargetFilename, TargetName, TargetVersion}
-import com.advancedtelematic.libtuf_server.data.Requests.CreateRepositoryRequest
+import com.advancedtelematic.libtuf.data.TufDataType.{HardwareIdentifier, JsonSignedPayload, KeyType, RepoId, SignedPayload, TargetFilename, TargetName, TargetVersion}
+import com.advancedtelematic.libtuf_server.data.Requests.{CommentRequest, CreateRepositoryRequest, FilenameComment, TargetComment}
 import com.advancedtelematic.libtuf_server.repo.client.ReposerverClient.{KeysNotReady, NotFound, RootNotInKeyserver}
 import io.circe.{Decoder, Encoder, Json}
 import com.advancedtelematic.libats.codecs.CirceCodecs._
 import com.advancedtelematic.libtuf.data.ClientCodecs._
-import com.advancedtelematic.libtuf.data.ClientDataType.{RootRole, TargetsRole}
+import com.advancedtelematic.libtuf.data.ClientDataType.{ClientTargetItem, DelegationClientTargetItem, RootRole, TargetCustom, TargetsRole}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.util.{Failure, Success}
 import io.circe.generic.semiauto._
+import org.slf4j.LoggerFactory
+
+import java.net.URI
 
 object ReposerverClient {
 
@@ -49,6 +50,14 @@ object ReposerverClient {
                                version: Option[TargetVersion],
                                hardwareIds: Seq[HardwareIdentifier],
                                length: Long)
+  object EditTargetItem {
+    implicit val encoder: Encoder[EditTargetItem] = deriveEncoder
+    implicit val decoder: Decoder[EditTargetItem] = deriveDecoder
+  }
+  case class EditTargetItem(uri: Option[URI] = None,
+                            hardwareIds: Seq[HardwareIdentifier] = Seq.empty[HardwareIdentifier],
+                            proprietaryCustom: Option[Json] = None
+                           )
 
   val KeysNotReady = RawError(ErrorCode("keys_not_ready"), StatusCodes.Locked, "keys not ready")
   val RootNotInKeyserver = RawError(ErrorCode("root_role_not_in_keyserver"), StatusCodes.FailedDependency, "the root role was not found in upstream keyserver")
@@ -63,10 +72,10 @@ trait ReposerverClient {
 
   def createRoot(namespace: Namespace, keyType: KeyType): Future[RepoId]
 
-  def fetchRoot(namespace: Namespace): Future[(RepoId, SignedPayload[RootRole])]
+  def fetchRoot(namespace: Namespace, version: Option[Int]): Future[(RepoId, SignedPayload[RootRole])]
 
   def repoExists(namespace: Namespace)(implicit ec: ExecutionContext): Future[Boolean] =
-    fetchRoot(namespace).transform {
+    fetchRoot(namespace, None).transform {
       case Success(_) | Failure(KeysNotReady) => Success(true)
       case Failure(NotFound) | Failure(RootNotInKeyserver) => Success(false)
       case Failure(t) => Failure(t)
@@ -76,15 +85,38 @@ trait ReposerverClient {
                 targetFormat: TargetFormat, name: Option[TargetName] = None, version: Option[TargetVersion] = None,
                 hardwareIds: Seq[HardwareIdentifier] = Seq.empty): Future[Unit]
 
-  def addTargetFromContent(namespace: Namespace, fileName: String, uri: Option[Uri], checksum: Checksum, length: Int,
+  def addTargetFromContent(namespace: Namespace,
+                           fileName: String,
+                           length: Int,
                            targetFormat: TargetFormat,
                            content: Source[ByteString, Any],
-                           name: TargetName, version: TargetVersion,
+                           name: TargetName,
+                           version: TargetVersion,
                            hardwareIds: Seq[HardwareIdentifier] = Seq.empty): Future[Unit]
 
   def targetExists(namespace: Namespace, targetFilename: TargetFilename): Future[Boolean]
 
+  def fetchSnapshotMetadata(namespace: Namespace): Future[JsonSignedPayload]
+
+  def fetchTimestampMetadata(namespace: Namespace): Future[JsonSignedPayload]
+
   def fetchTargets(namespace: Namespace): Future[SignedPayload[TargetsRole]]
+
+  def setTargetComments(namespace: Namespace, targetFilename: TargetFilename, comment: String): Future[Unit]
+  def fetchSingleTargetComments(namespace: Namespace, targetFilename: TargetFilename): Future[FilenameComment]
+  def fetchTargetsComments(namespace: Namespace, targetNameContains: Option[String]): Future[PaginationResult[FilenameComment]]
+  def deleteTarget(namespace: Namespace, targetFilename: TargetFilename): Future[Unit]
+
+  def editTarget(namespace: Namespace,
+                 targetFilename: TargetFilename,
+                 uri: Option[URI] = None,
+                 hardwareIds: Seq[HardwareIdentifier] = Seq.empty,
+                 proprietaryMeta: Option[Json] = None) : Future[ClientTargetItem]
+  def fetchSingleTargetItem(namespace: Namespace, targetFilename: TargetFilename): Future[ClientTargetItem]
+  def fetchTargetItems(namespace: Namespace, nameContains: Option[String] = None): Future[PaginationResult[ClientTargetItem]]
+  def fetchDelegationMetadata(namespace: Namespace, roleName: String): Future[JsonSignedPayload]
+  def fetchDelegationTargetItems(namespace: Namespace, nameContains: Option[String] = None): Future[PaginationResult[DelegationClientTargetItem]]
+  def fetchSingleDelegationTargetItem(namespace: Namespace, targetFilename: TargetFilename): Future[Seq[DelegationClientTargetItem]]
 }
 
 object ReposerverHttpClient extends ServiceHttpClientSupport {
@@ -104,6 +136,8 @@ class ReposerverHttpClient(reposerverUri: Uri, httpClient: HttpRequest => Future
   import io.circe.syntax._
   import ServiceHttpClient._
 
+  val log = LoggerFactory.getLogger(this.getClass)
+
   private def apiUri(path: Path) =
     reposerverUri.withPath(reposerverUri.path / "api" / "v1" ++ Slash(path))
 
@@ -120,8 +154,10 @@ class ReposerverHttpClient(reposerverUri: Uri, httpClient: HttpRequest => Future
       }
     }
 
-  override def fetchRoot(namespace: Namespace): Future[(RepoId, SignedPayload[RootRole])] = {
-    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path("user_repo/root.json")))
+  override def fetchRoot(namespace: Namespace, version: Option[Int]): Future[(RepoId, SignedPayload[RootRole])] = {
+    val req =
+      if(version.nonEmpty) HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/${version.get}.root.json")))
+      else  HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/root.json")))
 
     execHttpFullWithNamespace[SignedPayload[RootRole]](namespace, req).flatMap {
       case Left(error) if error.status == StatusCodes.NotFound =>
@@ -147,6 +183,11 @@ class ReposerverHttpClient(reposerverUri: Uri, httpClient: HttpRequest => Future
       Future.failed(NotFound)
     case error if error.status == StatusCodes.Locked =>
       Future.failed(KeysNotReady)
+    case error if error.status == StatusCodes.MethodNotAllowed =>
+      // if the parameters are wonky (like the package-id is too long), Akka will match this
+      // to another request where it fails with bad method. Catch it and respond with BadRequest
+      log.warn("Caught http 405 error from reposerver attempting to add target. Converting it to 400")
+      Future.failed(RawError(ErrorCode("bad_request"), StatusCodes.BadRequest, "invalid parameters"))
   }
 
   override def addTarget(namespace: Namespace, fileName: String,
@@ -175,11 +216,100 @@ class ReposerverHttpClient(reposerverUri: Uri, httpClient: HttpRequest => Future
       case Right(_) => FastFuture.successful(true)
     }
   }
+  override def fetchSnapshotMetadata(namespace: Namespace): Future[JsonSignedPayload] = {
+    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/snapshot.json")))
+    execHttpUnmarshalledWithNamespace[JsonSignedPayload](namespace, req).ok
+  }
+
+  override def fetchTimestampMetadata(namespace: Namespace): Future[JsonSignedPayload] = {
+    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/timestamp.json")))
+    execHttpUnmarshalledWithNamespace[JsonSignedPayload](namespace, req).ok
+  }
 
   override def fetchTargets(namespace: Namespace): Future[SignedPayload[TargetsRole]] = {
     val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path("user_repo/targets.json")))
 
     execHttpUnmarshalledWithNamespace[SignedPayload[TargetsRole]](namespace, req).handleErrors {
+      case error if error.status == StatusCodes.NotFound =>
+        FastFuture.failed(NotFound)
+    }
+  }
+
+  override def fetchSingleTargetItem(namespace: Namespace, targetFilename: TargetFilename): Future[ClientTargetItem] = {
+    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/target_items/${targetFilename.value}")))
+    execHttpUnmarshalledWithNamespace[ClientTargetItem](namespace, req).ok
+  }
+
+  override def fetchTargetItems(namespace: Namespace, nameContains: Option[String] = None): Future[PaginationResult[ClientTargetItem]] = {
+    val reqUri = if (nameContains.isDefined)
+      apiUri(Path(s"user_repo/target_items")).withQuery(Query("nameContains" -> nameContains.get))
+    else
+      apiUri(Path(s"user_repo/target_items"))
+    val req = HttpRequest(HttpMethods.GET, uri = reqUri)
+    execHttpUnmarshalledWithNamespace[PaginationResult[ClientTargetItem]](namespace, req).ok
+  }
+
+  override def fetchDelegationMetadata(namespace: Namespace, roleName: String): Future[JsonSignedPayload] = {
+    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/delegations/${roleName}")))
+    execHttpUnmarshalledWithNamespace[JsonSignedPayload](namespace, req).ok
+  }
+
+  override def fetchSingleDelegationTargetItem(namespace: Namespace, targetFilename: TargetFilename): Future[Seq[DelegationClientTargetItem]] = {
+    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/delegations_items/${targetFilename.value}")))
+    execHttpUnmarshalledWithNamespace[Seq[DelegationClientTargetItem]](namespace, req).ok
+  }
+
+  override def fetchDelegationTargetItems(namespace: Namespace, nameContains: Option[String] = None): Future[PaginationResult[DelegationClientTargetItem]] = {
+    val reqUri = if (nameContains.isDefined)
+      apiUri(Path(s"user_repo/delegations_items")).withQuery(Query("nameContains" -> nameContains.get))
+    else
+      apiUri(Path(s"user_repo/delegations_items"))
+    val req = HttpRequest(HttpMethods.GET, uri = reqUri)
+    execHttpUnmarshalledWithNamespace[PaginationResult[DelegationClientTargetItem]](namespace, req).ok
+  }
+
+  override def setTargetComments(namespace: Namespace, targetFilename: TargetFilename, comment: String): Future[Unit] = {
+    val commentBody = HttpEntity(ContentTypes.`application/json`, CommentRequest(TargetComment(comment)).asJson.noSpaces)
+    val req = HttpRequest(HttpMethods.PUT, uri = apiUri(Path(s"user_repo/comments/${targetFilename.value}")), entity = commentBody)
+    execHttpUnmarshalledWithNamespace[Unit](namespace, req).ok
+  }
+
+  override def fetchTargetsComments(namespace: Namespace, targetNameContains: Option[String]): Future[PaginationResult[FilenameComment]] = {
+    val commentUri = if (targetNameContains.isDefined)
+        apiUri(Path("user_repo/comments")).withQuery(Query("nameContains" -> targetNameContains.getOrElse("")))
+      else
+        apiUri(Path("user_repo/comments"))
+    val req = HttpRequest(HttpMethods.GET, uri = commentUri)
+
+    execHttpUnmarshalledWithNamespace[PaginationResult[FilenameComment]](namespace, req).handleErrors {
+      case error if error.status == StatusCodes.NotFound =>
+        FastFuture.failed(NotFound)
+    }
+  }
+  override def fetchSingleTargetComments(namespace: Namespace, targetFilename: TargetFilename): Future[FilenameComment] = {
+    val req = HttpRequest(HttpMethods.GET, uri = apiUri(Path(s"user_repo/comments/${targetFilename.value}")))
+    execHttpUnmarshalledWithNamespace[FilenameComment](namespace, req).ok
+  }
+
+  def deleteTarget(namespace: Namespace, targetFilename: TargetFilename): Future[Unit] = {
+    val req = HttpRequest(HttpMethods.DELETE, uri = apiUri(Path(s"user_repo/targets/${targetFilename}")))
+    execHttpUnmarshalledWithNamespace[Unit](namespace, req).handleErrors {
+      case error if error.status == StatusCodes.NotFound =>
+        FastFuture.failed(NotFound)
+    }
+  }
+  // Does the reposerver support this?
+  override def editTarget(namespace: Namespace,
+                           targetFilename: TargetFilename,
+                           uri: Option[URI] = None,
+                           hardwareIds: Seq[HardwareIdentifier] = Seq.empty,
+                           proprietaryMeta: Option[Json] = None
+                          ): Future[ClientTargetItem] = {
+    val editTargetItem = EditTargetItem(uri, hardwareIds, proprietaryMeta)
+    val req = HttpRequest(HttpMethods.PATCH,
+                uri = apiUri(Path(s"user_repo/targets/${targetFilename}"))).
+                  withEntity(ContentTypes.`application/json`, editTargetItem.asJson.noSpaces)
+    execHttpUnmarshalledWithNamespace[ClientTargetItem](namespace, req).handleErrors {
       case error if error.status == StatusCodes.NotFound =>
         FastFuture.failed(NotFound)
     }
@@ -200,9 +330,13 @@ class ReposerverHttpClient(reposerverUri: Uri, httpClient: HttpRequest => Future
                           version: Option[TargetVersion], hardwareIds: Seq[HardwareIdentifier], targetFormat: TargetFormat): Json =
     RequestTargetItem(uri, checksum, Some(targetFormat), name, version, hardwareIds, length).asJson
 
-  override def addTargetFromContent(namespace: Namespace, fileName: String, uri: Option[Uri],
-                                    checksum: Checksum, length: Int, targetFormat: TargetFormat, content: Source[ByteString, Any],
-                                    name: TargetName, version: TargetVersion,
+  override def addTargetFromContent(namespace: Namespace,
+                                    fileName: String,
+                                    length: Int,
+                                    targetFormat: TargetFormat,
+                                    content: Source[ByteString, Any],
+                                    name: TargetName,
+                                    version: TargetVersion,
                                     hardwareIds: Seq[HardwareIdentifier]): Future[Unit] = {
     val params =
       Map(

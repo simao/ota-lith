@@ -1,10 +1,9 @@
 package com.advancedtelematic.tuf.reposerver.db
 
 import java.time.Instant
-
 import akka.http.scaladsl.model.Uri
 import com.advancedtelematic.libats.data.DataType.{Checksum, Namespace}
-import com.advancedtelematic.libtuf.data.ClientDataType.{DelegatedRoleName, TargetCustom}
+import com.advancedtelematic.libtuf.data.ClientDataType.{DelegatedRoleName, DelegationFriendlyName, TargetCustom}
 import com.advancedtelematic.libtuf.data.TufDataType.RoleType.RoleType
 import com.advancedtelematic.libtuf.data.TufDataType.{JsonSignedPayload, RepoId, TargetFilename}
 import slick.jdbc.MySQLProfile.api._
@@ -12,8 +11,8 @@ import SlickMappings._
 import com.advancedtelematic.libtuf_server.data.Requests.TargetComment
 import com.advancedtelematic.tuf.reposerver.db.DBDataType.{DbDelegation, DbSignedRole}
 import SlickMappings.delegatedRoleNameMapper
-import com.advancedtelematic.tuf.reposerver.data.RepositoryDataType.StorageMethod.StorageMethod
-import com.advancedtelematic.tuf.reposerver.data.RepositoryDataType.TargetItem
+import com.advancedtelematic.tuf.reposerver.data.RepoDataType.StorageMethod.StorageMethod
+import com.advancedtelematic.tuf.reposerver.data.RepoDataType.TargetItem
 
 object Schema {
   import com.advancedtelematic.libats.slick.codecs.SlickRefined._
@@ -56,13 +55,14 @@ object Schema {
 
   protected [db] val signedRoles = TableQuery[SignedRoleTable]
 
-  class RepoNamespaceTable(tag: Tag) extends Table[(RepoId, Namespace)](tag, "repo_namespaces") {
+  class RepoNamespaceTable(tag: Tag) extends Table[(RepoId, Namespace, Option[Instant])](tag, "repo_namespaces") {
     def repoId = column[RepoId]("repo_id")
     def namespace = column[Namespace]("namespace")
+    def expiresNotBefore = column[Option[Instant]]("expires_not_before")
 
     def pk = primaryKey("repo_namespaces_pk", namespace)
 
-    override def * = (repoId, namespace)
+    override def * = (repoId, namespace, expiresNotBefore)
   }
 
   protected [db] val repoNamespaces = TableQuery[RepoNamespaceTable]
@@ -82,13 +82,19 @@ object Schema {
   protected [db] val filenameComments = TableQuery[PackageCommentTable]
 
   class DelegationTable(tag: Tag) extends Table[DbDelegation](tag, "delegations") {
+    implicit val remoteHeadersMapper = SlickMappings.remoteHeadersMapper
+
     def repoId = column[RepoId]("repo_id")
     def roleName = column[DelegatedRoleName]("name")
     def content = column[JsonSignedPayload]("content")
+    def remoteUri = column[Option[Uri]]("uri")
+    def remoteHeaders = column[Map[String, String]]("remote_headers")
+    def lastFetched = column[Option[Instant]]("last_fetched_at")
+    def friendlyName = column[Option[DelegationFriendlyName]]("friendly_name")
 
     def pk = primaryKey("delegations_pk", (repoId, roleName))
 
-    override def * = (repoId, roleName, content) <> ((DbDelegation.apply _).tupled, DbDelegation.unapply)
+    override def * = (repoId, roleName, content, remoteUri, lastFetched, remoteHeaders, friendlyName) <> ((DbDelegation.apply _).tupled, DbDelegation.unapply)
   }
 
   protected [db] val delegations = TableQuery[DelegationTable]

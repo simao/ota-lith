@@ -31,6 +31,10 @@ object ClientDataType {
                               length: Long, custom: Option[Json]) {
     def customParsed[T : Decoder]: Option[T] = custom.flatMap(_.as[T].toOption)
   }
+  // is it dumb to have the targetFilename field since this can be formed from clientTargetItem.custom?
+  case class DelegationClientTargetItem(targetFilename: TargetFilename,
+                                        delegatedRoleName: DelegatedRoleName,
+                                        clientTargetItem: ClientTargetItem)
 
   case class RoleKeys(keyids: Seq[KeyId], threshold: Int)
 
@@ -100,6 +104,7 @@ object ClientDataType {
     implicit val rootTufRole = apply[RootRole](RoleType.ROOT)((r, v, e) => r.copy(version = v, expires = e))
     implicit val offlineUpdatesRole = apply[OfflineUpdatesRole](RoleType.OFFLINE_UPDATES)((r, v, e) => r.copy(version = v, expires = e))
     implicit val offlineSnapshotRole = apply[OfflineSnapshotRole](RoleType.OFFLINE_SNAPSHOT)((r, v, e) => r.copy(version = v, expires = e))
+    implicit val remoteSessionsRole = apply[RemoteSessionsRole](RoleType.REMOTE_SESSIONS)((r, v, e) => r.copy(version = v, expires = e))
   }
 
   case class RootRole(keys: Map[KeyId, TufKey],
@@ -130,6 +135,9 @@ object ClientDataType {
                                  expires: Instant,
                                  version: Int) extends VersionedRole
 
+  case class RemoteSessionsRole(remote_sessions: Json,
+                                expires: Instant,
+                                version: Int) extends VersionedRole
   final class DelegatedPathPattern private (val value: String) extends ValidatedString
 
   object DelegatedPathPattern {
@@ -148,9 +156,21 @@ object ClientDataType {
   object DelegatedRoleName {
     implicit val delegatedRoleNameValidation = ValidatedStringValidation(new DelegatedRoleName(_)) { v: String =>
       cats.data.Validated.condNel(
-        v.nonEmpty || v.length > 50,
+        v.nonEmpty && v.length < 51 && v.matches("[a-zA-Z0-9_-][a-zA-Z0-9_.-]*"),
         new DelegatedRoleName(v),
-        "delegated role name cannot be empty or bigger than 50 characters"
+        "delegated role name cannot be empty, bigger than 50 characters, or contain any special characters other than `_, -, .`"
+      )
+    }
+  }
+
+  final class DelegationFriendlyName private (val value: String) extends ValidatedString
+
+  object DelegationFriendlyName {
+    implicit val delegationFriendlyNameValidation = ValidatedStringValidation(new DelegationFriendlyName(_)) { v: String =>
+      cats.data.Validated.condNel(
+        v.nonEmpty && v.length < 81,
+        new DelegationFriendlyName(v),
+        "delegation friendly name name cannot be empty or longer than 80 characters"
       )
     }
   }
