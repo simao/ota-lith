@@ -1,75 +1,124 @@
-name := "ota-lith"
-organization := "com.advancedtelematic"
-scalaVersion := "2.12.12"
+// *****************************************************************************
+// Projects
+// *****************************************************************************
 
-resolvers += "ATS Releases" at "https://nexus.ota.here.com/content/repositories/releases"
+lazy val `ota-device-registry` =
+  project
+    .in(file("."))
+    .enablePlugins(GitVersioning, BuildInfoPlugin, DockerPlugin, JavaAppPackaging)
+    .settings(settings)
+    .settings(
+      libraryDependencies ++= Seq(
+        library.akkaAlpakkaCsv,
+        library.akkaHttpTestKit % Test,
+        library.akkaSlf4J,
+        library.akkaStreamTestKit % Test,
+        library.attoCore,
+        library.circeTesting % Test,
+        library.libTuf,
+        library.mariaDb,
+        library.scalaTest  % Test,
+        library.toml,
+      )
+    )
+    .settings(libraryDependencies ++= library.libAts)
 
-resolvers += "ATS Snapshots" at "https://nexus.ota.here.com/content/repositories/snapshots"
+// *****************************************************************************
+// Library dependencies
+// *****************************************************************************
 
-updateOptions := updateOptions.value.withLatestSnapshots(false)
+libraryDependencies += "org.scalatestplus" %% "scalacheck-1-15" % "3.2.9.0" % "test"
 
-libraryDependencies ++= {
-  val bouncyCastleV = "1.59"
-  val akkaV = "2.6.5"
-  val akkaHttpV = "10.1.12"
+lazy val library =
+  new {
+    object Version {
+      val attoCore = "0.9.5"
+      val scalaTest  = "3.2.9"
+      val libAts     = "2.0.10"
+      val libTuf = "1.0.1"
+      val akka = "2.6.18"
+      val akkaHttp = "10.2.8"
+      val alpakkaCsv = "2.0.0"
+      val mariaDb = "2.7.3"
+      val circe = "0.14.1"
+      val toml = "0.2.2"
+    }
 
+    val scalaTest  = "org.scalatest"  %% "scalatest"  % Version.scalaTest
+    val libAts = Seq(
+      "libats-messaging",
+      "libats-messaging-datatype",
+      "libats-slick",
+      "libats-http",
+      "libats-metrics",
+      "libats-metrics-akka",
+      "libats-metrics-prometheus",
+      "libats-http-tracing",
+      "libats-logging"
+    ).map("io.github.uptane" %% _ % Version.libAts)
+    val libTuf = "io.github.uptane" %% "libtuf" % Version.libTuf
+    val akkaHttpTestKit = "com.typesafe.akka" %% "akka-http-testkit" % Version.akkaHttp
+    val akkaStreamTestKit = "com.typesafe.akka" %% "akka-stream-testkit" % Version.akka
+    val akkaAlpakkaCsv = "com.lightbend.akka" %% "akka-stream-alpakka-csv" % Version.alpakkaCsv
+    val mariaDb = "org.mariadb.jdbc" % "mariadb-java-client" % Version.mariaDb
+    val circeTesting = "io.circe" %% "circe-testing" % Version.circe
+    val akkaSlf4J = "com.typesafe.akka" %% "akka-slf4j" % Version.akka
+    val toml = "tech.sparse" %% "toml-scala" % Version.toml
+    val attoCore = "org.tpolecat" %% "atto-core" % Version.attoCore
+  }
+
+// *****************************************************************************
+// Settings
+// *****************************************************************************
+
+lazy val settings =
+commonSettings ++
+gitSettings ++
+buildInfoSettings ++
+dockerSettings
+
+lazy val commonSettings =
   Seq(
-    "org.bouncycastle" % "bcprov-jdk15on" % bouncyCastleV,
-    "org.bouncycastle" % "bcpkix-jdk15on" % bouncyCastleV,
-
-    "com.typesafe.akka" %% "akka-actor" % akkaV,
-    "com.typesafe.akka" %% "akka-stream" % akkaV,
-    "com.typesafe.akka" %% "akka-http" % akkaHttpV,
+    scalaVersion := "2.12.14",
+    organization := "io.github.uptane",
+    organizationName := "ATS Advanced Telematic Systems GmbH",
+    name := "device-registry",
+    startYear := Some(2017),
+    resolvers += Resolver.sonatypeRepo("releases"),
+    resolvers += "sonatype-snapshots" at "https://s01.oss.sonatype.org/content/repositories/snapshots",
+    licenses += ("MPL-2.0", url("http://mozilla.org/MPL/2.0/")),
+    scalacOptions ++= Seq(
+      "-Ypartial-unification",
+      "-unchecked",
+      "-deprecation",
+      "-language:_",
+      "-target:jvm-1.8",
+      "-encoding",
+      "UTF-8"
+    ),
+    Compile / unmanagedSourceDirectories := Seq((Compile / scalaSource).value),
+    Test / unmanagedSourceDirectories := Seq((Test / scalaSource).value),
   )
-}
 
-// TODO: Add to libraryDependencies when done
-lazy val treehub = (ProjectRef(file("./repos/treehub"), "root"))
-lazy val device_registry = (ProjectRef(file("./repos/device-registry"), "ota-device-registry"))
-lazy val campaigner = (ProjectRef(file("./repos/campaigner"), "campaigner"))
-lazy val director = (ProjectRef(file("./repos/director"), "director"))
-lazy val keyserver = (ProjectRef(file("./repos/tuf"), "keyserver"))
-lazy val reposerver = (ProjectRef(file("./repos/tuf"), "reposerver"))
-// lazy val libats_slick = (ProjectRef(file("/home/simao/ats/libats"), "libats_slick"))
+Compile / mainClass := Some("com.advancedtelematic.ota.deviceregistry.Boot")
 
-dependsOn(treehub, device_registry, campaigner, director, keyserver, reposerver)
+lazy val gitSettings = Seq(
+    git.useGitDescribe := true,
+  )
 
-enablePlugins(BuildInfoPlugin, GitVersioning, JavaAppPackaging)
-
-buildInfoOptions += BuildInfoOption.ToMap
-buildInfoOptions += BuildInfoOption.BuildTime
-
-mainClass in Compile := Some("com.advancedtelematic.ota_lith.OtaLithBoot")
-
-import com.typesafe.sbt.packager.docker._
-import sbt.Keys._
-import com.typesafe.sbt.SbtNativePackager.Docker
-import DockerPlugin.autoImport._
-import com.typesafe.sbt.SbtGit.git
-import com.typesafe.sbt.SbtNativePackager.autoImport._
-import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
-
-dockerRepository in Docker := Some("advancedtelematic")
-
-packageName in Docker := packageName.value
-
-dockerUpdateLatest := true
-
-dockerAliases ++= Seq(dockerAlias.value.withTag(git.gitHeadCommit.value))
-
-defaultLinuxInstallLocation in Docker := s"/opt/${moduleName.value}"
-
-dockerCommands := Seq(
-  Cmd("FROM", "advancedtelematic/alpine-jre:adoptopenjdk-jre8u262-b10"),
-  ExecCmd("RUN", "mkdir", "-p", s"/var/log/${moduleName.value}"),
-  Cmd("ADD", "opt /opt"),
-  Cmd("WORKDIR", s"/opt/${moduleName.value}"),
-  ExecCmd("ENTRYPOINT", s"/opt/${moduleName.value}/bin/${moduleName.value}"),
-  Cmd("RUN", s"chown -R daemon:daemon /opt/${moduleName.value}"),
-  Cmd("RUN", s"mkdir /var/lib/${moduleName.value}"),
-  Cmd("RUN", s"chown -R daemon:daemon /var/lib/${moduleName.value}"),
-  Cmd("RUN", s"chown -R daemon:daemon /var/log/${moduleName.value}"),
-  Cmd("USER", "daemon")
+lazy val dockerSettings = Seq(
+  dockerRepository := Some("advancedtelematic"),
+  packageName := packageName.value,
+  dockerBaseImage := "eclipse-temurin:17.0.3_7-jre-jammy",
+  dockerUpdateLatest := true,
+  dockerAliases ++= Seq(dockerAlias.value.withTag(git.formattedShaVersion.value)),
+  Docker / daemonUser := "daemon"
 )
 
-// fork := true // TODO: Not compatible with .properties ?
+lazy val buildInfoSettings = Seq(
+  buildInfoOptions ++= Seq(BuildInfoOption.ToJson, BuildInfoOption.ToMap, BuildInfoOption.BuildTime),
+  buildInfoObject := "AppBuildInfo",
+  buildInfoPackage := "com.advancedtelematic.deviceregistry",
+  buildInfoUsePackageAsPath := true,
+  buildInfoOptions += BuildInfoOption.Traits("com.advancedtelematic.libats.boot.VersionInfoProvider")
+)
