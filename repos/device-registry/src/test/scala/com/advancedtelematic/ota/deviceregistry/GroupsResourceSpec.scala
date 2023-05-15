@@ -10,7 +10,7 @@ package com.advancedtelematic.ota.deviceregistry
 
 import akka.http.scaladsl.model.Uri.Query
 import com.advancedtelematic.ota.deviceregistry.data.Group.GroupId
-import com.advancedtelematic.ota.deviceregistry.data.{Group, GroupExpression, GroupName, SortBy}
+import com.advancedtelematic.ota.deviceregistry.data.{Group, GroupExpression, GroupName, GroupSortBy}
 import com.advancedtelematic.libats.messaging_datatype.DataType.DeviceId
 import org.scalacheck.Arbitrary._
 import org.scalacheck.Gen
@@ -105,7 +105,7 @@ class GroupsResourceSpec extends AnyFunSuite with ResourceSpec with ScalaFutures
   test("gets all existing groups sorted by creation time") {
     val groupIds = (1 to 20).map(_ => createGroupOk())
 
-    listGroups(Some(SortBy.CreatedAt)) ~> route ~> check {
+    listGroups(Some(GroupSortBy.CreatedAt)) ~> route ~> check {
       status shouldBe OK
       val responseGroups = responseAs[PaginationResult[Group]].values
       responseGroups.reverse.map(_.id).filter(groupIds.contains) shouldBe groupIds

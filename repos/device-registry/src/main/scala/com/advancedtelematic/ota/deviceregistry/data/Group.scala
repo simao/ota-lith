@@ -10,7 +10,6 @@ package com.advancedtelematic.ota.deviceregistry.data
 
 import java.time.Instant
 import java.util.UUID
-
 import akka.http.scaladsl.unmarshalling.Unmarshaller
 import com.advancedtelematic.libats.codecs.CirceCodecs._
 import com.advancedtelematic.libats.data.DataType.Namespace
@@ -50,8 +49,8 @@ object Group {
   implicit val groupDecoder: Decoder[Group] = deriveDecoder[Group]
 }
 
-object SortBy {
-  sealed trait SortBy
-  case object Name      extends SortBy
-  case object CreatedAt extends SortBy
+object GroupSortBy {
+  sealed trait GroupSortBy
+  case object Name      extends GroupSortBy
+  case object CreatedAt extends GroupSortBy
 }

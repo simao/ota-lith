@@ -12,7 +12,8 @@ import com.advancedtelematic.libats.data.{EcuIdentifier, ErrorCode}
 import com.advancedtelematic.libats.http.Errors.{EntityAlreadyExists, MissingEntity, RawError}
 import com.advancedtelematic.libats.messaging_datatype.DataType.DeviceId
 import com.advancedtelematic.ota.deviceregistry.data.DataType.PackageListItem
-import com.advancedtelematic.ota.deviceregistry.data.{Group, GroupExpression}
+import com.advancedtelematic.ota.deviceregistry.data.Device.DeviceOemId
+import com.advancedtelematic.ota.deviceregistry.data.{DeviceName, Group, GroupExpression, GroupName}
 import com.advancedtelematic.ota.deviceregistry.data.GroupType.GroupType
 import com.advancedtelematic.ota.deviceregistry.db.GroupMemberRepository.GroupMember
 import com.advancedtelematic.ota.deviceregistry.db.PublicCredentialsRepository.DevicePublicCredentials
@@ -24,6 +25,7 @@ object Errors {
   object Codes {
     val MissingDevice                      = ErrorCode("missing_device")
     val ConflictingDevice                  = ErrorCode("conflicting_device")
+    val ConflictingGroupName               = ErrorCode("conflicting_device_group_name")
     val SystemInfoAlreadyExists            = ErrorCode("system_info_already_exists")
     val MissingGroupInfo                   = ErrorCode("missing_group_info")
     val GroupAlreadyExists                 = ErrorCode("group_already_exists")
@@ -46,8 +48,12 @@ object Errors {
              s"Invalid group expression $expression for group type $groupType")
 
   val MissingDevice = RawError(Codes.MissingDevice, StatusCodes.NotFound, "device doesn't exist")
-  val ConflictingDevice =
-    RawError(Codes.ConflictingDevice, StatusCodes.Conflict, "deviceId or deviceName is already in use")
+  def ConflictingDevice(deviceName: Option[DeviceName], deviceOemId: Option[DeviceOemId] = None) =
+    RawError(Codes.ConflictingDevice, StatusCodes.Conflict, s"$deviceOemId or $deviceName is already in use")
+
+  def ConflictingGroupName(groupName: GroupName) =
+    RawError(Codes.ConflictingGroupName, StatusCodes.Conflict, s"$groupName already in use")
+
   val MissingSystemInfo     = MissingEntity[SystemInfo]
   val ConflictingSystemInfo = EntityAlreadyExists[SystemInfo]
 
