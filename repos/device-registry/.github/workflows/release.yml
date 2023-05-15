@@ -19,7 +19,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: coursier/setup-action@v1
         with:
-          jvm: 'openjdk:17'
+          jvm: 'temurin:1.17.0.3'
       - uses: coursier/cache-action@v6
       - run: sbt docker:publishLocal
       - run: docker tag advancedtelematic/device-registry:$GITHUB_SHA uptane/device-registry:$GITHUB_SHA
