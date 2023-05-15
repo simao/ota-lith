@@ -15,6 +15,7 @@ import com.advancedtelematic.libtuf.data.TufDataType.SignedPayload
 import io.circe.syntax._
 import org.scalatest.LoneElement._
 
+import java.time.Instant
 import scala.language.higherKinds
 
 class ManifestCompilerSpec extends DirectorSpec {
@@ -31,7 +32,7 @@ class ManifestCompilerSpec extends DirectorSpec {
   val targetUpdate = GenTargetUpdate.generate
   val deviceId = DeviceId.generate()
   val ecuTarget = EcuTarget(ns, EcuTargetId.generate(), targetUpdate.target, targetUpdate.targetLength, targetUpdate.checksum, targetUpdate.checksum.hash, targetUpdate.uri)
-  val assignment = Assignment(ns, deviceId, primary, ecuTarget.id, GenCorrelationId.generate, inFlight = true)
+  val assignment = Assignment(ns, deviceId, primary, ecuTarget.id, GenCorrelationId.generate, inFlight = true, createdAt = Instant.now)
 
   test("manifest setting already known versions is a NOOP") {
     val ecuManifest = EcuManifest(targetUpdate.toImage, primary, "")
@@ -71,7 +72,7 @@ class ManifestCompilerSpec extends DirectorSpec {
     val ecuManifest = EcuManifest(targetUpdate.toImage, primary, "")
     val ecuVersionManifest = Map(secondary -> SignedPayload(Seq.empty, ecuManifest, ecuManifest.asJson))
     val manifest = DeviceManifest(primary, ecuVersionManifest)
-    val secondaryAssignment = Assignment(ns, deviceId, secondary, ecuTarget.id, GenCorrelationId.generate, inFlight = true)
+    val secondaryAssignment = Assignment(ns, deviceId, secondary, ecuTarget.id, GenCorrelationId.generate, inFlight = true, createdAt = Instant.now)
 
     val currentStatus = DeviceKnownState(deviceId, primary, Map(primary -> None, secondary -> None), Map(ecuTarget.id -> ecuTarget),
                                           Set(assignment, secondaryAssignment), Set.empty, generatedMetadataOutdated = false)
@@ -89,7 +90,7 @@ class ManifestCompilerSpec extends DirectorSpec {
     val ecuManifest = EcuManifest(targetUpdate.toImage, primary, "")
     val ecuVersionManifest = Map(primary -> SignedPayload(Seq.empty, ecuManifest, ecuManifest.asJson))
     val manifest = DeviceManifest(primary, ecuVersionManifest)
-    val otherAssignment = Assignment(ns, deviceId, secondary, ecuTarget.id, GenCorrelationId.generate, inFlight = true)
+    val otherAssignment = Assignment(ns, deviceId, secondary, ecuTarget.id, GenCorrelationId.generate, inFlight = true, createdAt = Instant.now)
 
     val currentStatus = DeviceKnownState(deviceId, primary, Map(primary -> None), Map(ecuTarget.id -> ecuTarget), Set(assignment, otherAssignment), Set.empty, generatedMetadataOutdated = false)
 
@@ -108,7 +109,7 @@ class ManifestCompilerSpec extends DirectorSpec {
     val installationReportEntity = GenInstallReportEntity(primary, success = false).generate
 
     val manifest = DeviceManifest(primary, ecuVersionManifest, installationReportEntity.some)
-    val otherAssignment = Assignment(ns, deviceId, secondary, ecuTarget.id, GenCorrelationId.generate, inFlight = true)
+    val otherAssignment = Assignment(ns, deviceId, secondary, ecuTarget.id, GenCorrelationId.generate, inFlight = true, createdAt = Instant.now)
 
     val currentStatus = DeviceKnownState(deviceId, primary, Map(primary -> None), Map(ecuTarget.id -> ecuTarget), Set(assignment, otherAssignment), Set.empty, generatedMetadataOutdated = false)
 

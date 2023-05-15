@@ -1,6 +1,8 @@
 package com.advancedtelematic.director.http
 
-import akka.http.scaladsl.model.StatusCodes
+
+import org.scalatest.LoneElement._
+import akka.http.scaladsl.model.{HttpHeader, MediaRange, MediaRanges, MediaTypes, StatusCodes}
 import cats.syntax.option._
 import cats.syntax.show._
 import com.advancedtelematic.director.data.AdminDataType._
@@ -9,6 +11,7 @@ import com.advancedtelematic.director.data.DataType.TargetItemCustom
 import com.advancedtelematic.director.data.GeneratorOps._
 import com.advancedtelematic.director.data.Generators._
 import com.advancedtelematic.director.db.{DbDeviceRoleRepositorySupport, RepoNamespaceRepositorySupport}
+import com.advancedtelematic.director.http.DeviceAssignments.AssignmentCreateResult
 import com.advancedtelematic.director.util._
 import com.advancedtelematic.libats.data.DataType.{CorrelationId, MultiTargetUpdateId, Namespace}
 import com.advancedtelematic.libats.data.ErrorRepresentation
@@ -20,8 +23,12 @@ import com.advancedtelematic.libtuf.data.ClientDataType.TargetsRole
 import com.advancedtelematic.libtuf.data.TufCodecs._
 import com.advancedtelematic.libtuf.data.TufDataType.{HardwareIdentifier, SignedPayload}
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
+import io.circe.Json
 import org.scalactic.source.Position
+import org.scalatest.Inspectors
 import org.scalatest.OptionValues._
+
+import java.time.Instant
 
 trait AssignmentResources {
   self: DirectorSpec with RouteResourceSpec with NamespacedTests with AdminResources =>
@@ -32,7 +39,7 @@ trait AssignmentResources {
   }
 
   def createAssignment(deviceIds: Seq[DeviceId], hwId: HardwareIdentifier, targetUpdateO: Option[TargetUpdateRequest] = None,
-                       correlationIdO: Option[CorrelationId] = None)(checkV: => Any)(implicit ns: Namespace, pos: Position): AssignUpdateRequest = {
+                       correlationIdO: Option[CorrelationId] = None, detailedResult: Boolean = false)(checkV: => Any)(implicit ns: Namespace, pos: Position): AssignUpdateRequest = {
     val correlationId = correlationIdO.getOrElse(GenCorrelationId.generate)
 
     val targetUpdate = targetUpdateO.getOrElse(GenTargetUpdateRequest.generate)
@@ -96,7 +103,8 @@ class AssignmentsResourceSpec extends DirectorSpec
   with AssignmentResources
   with RepositorySpec
   with DeviceResources
-  with DeviceManifestSpec {
+  with DeviceManifestSpec
+  with Inspectors {
 
   override implicit val msgPub = new MockMessageBus
 
@@ -106,11 +114,16 @@ class AssignmentsResourceSpec extends DirectorSpec
   }
 
   testWithRepo("GET queue for affected devices includes newly created assignment") { implicit ns =>
+    val now = Instant.now.minusSeconds(1)
     val regDev = registerAdminDeviceOk()
     val assignment = createDeviceAssignmentOk(regDev.deviceId, regDev.primary.hardwareId)
 
     val queue = getDeviceAssignmentOk(assignment.devices.head)
     queue.map(_.correlationId) should contain(assignment.correlationId)
+
+    forAll(queue.flatMap(_.targets.values.map(_.createdAt))) { createdAt =>
+      createdAt.isAfter(now) shouldBe true
+    }
   }
 
   testWithRepo("returns PrimaryIsNotListedForDevice when ecus to register do not include primary ecu") { implicit ns =>
@@ -179,6 +192,31 @@ class AssignmentsResourceSpec extends DirectorSpec
     queue1 shouldBe empty
   }
 
+  testWithRepo("when requested, returns detailed results of affected devices") { implicit ns =>
+    val regDev0 = registerAdminDeviceOk()
+    val regDev1 = registerAdminDeviceOk(regDev0.primary.hardwareId.some)
+
+    val targetUpdate = GenTargetUpdateRequest.generate
+    putManifestOk(regDev0.deviceId, buildPrimaryManifest(regDev0.primary, regDev0.primaryKey, targetUpdate.to))
+
+    val otherUpdate = GenTargetUpdate.generate
+    putManifestOk(regDev1.deviceId, buildPrimaryManifest(regDev1.primary, regDev1.primaryKey, otherUpdate))
+
+    createAssignment(List(regDev0.deviceId, regDev1.deviceId), regDev0.primary.hardwareId, targetUpdate.some, detailedResult = true) {
+      status shouldBe StatusCodes.Created
+
+      val response = responseAs[AssignmentCreateResult]
+
+      response.affected.loneElement shouldBe regDev1.deviceId
+
+      val (deviceId, errors) = response.notAffected.loneElement
+      val (ecuId, error) = errors.loneElement
+      deviceId shouldBe regDev0.deviceId
+      ecuId shouldBe regDev0.primary.ecuSerial
+      error.code shouldBe ErrorCodes.InstalledTargetIsUpdate
+    }
+  }
+
   testWithRepo("ecus are not affected if they already have target installed") { implicit ns =>
     val regDev0 = registerAdminDeviceOk()
     val regDev1 = registerAdminDeviceOk(regDev0.primary.hardwareId.some)
@@ -212,11 +250,21 @@ class AssignmentsResourceSpec extends DirectorSpec
   // TODO: director should return 4xx and campaigner should handle that
   // https://saeljira.it.here.com/browse/OTA-4956
   testWithRepo("returns ok if no devices are affected by assignment") { implicit ns =>
+    createAssignment(Seq.empty, GenHardwareIdentifier.generate) {
+      status shouldBe StatusCodes.OK
+      responseAs[AssignmentCreateResult].affected shouldBe empty
+      responseAs[AssignmentCreateResult].notAffected shouldBe empty
+    }
+  }
+
+  testWithRepo("returns 4xx if device doesn't have correct hardware id") { implicit ns =>
     val regDev = registerAdminDeviceOk()
 
     createDeviceAssignment(regDev.deviceId, GenHardwareIdentifier.generate) {
-      status shouldBe StatusCodes.OK
-      responseAs[List[Unit]] shouldBe empty
+      status shouldBe StatusCodes.BadRequest
+      val notAffectedErrors = responseAs[AssignmentCreateResult].notAffected(regDev.deviceId)
+      val error = notAffectedErrors.get(regDev.primary.ecuSerial).value
+      error.code shouldBe ErrorCodes.DeviceNoCompatibleHardware
     }
   }
 
@@ -230,16 +278,23 @@ class AssignmentsResourceSpec extends DirectorSpec
     }
   }
 
-  // TODO: director should return errors describing which devices failed for this reason and campaigner should handle that
-  // https://saeljira.it.here.com/browse/OTA-4955
-  testWithRepo("create assignment returns 2xx if there is a created assignment for an ecu already, but device should not be affected") { implicit ns =>
+    testWithRepo("create assignment returns 4xx if there is a created assignment for an ecu already, but device should not be affected") { implicit ns =>
     val regDev = registerAdminDeviceOk()
 
     createDeviceAssignmentOk(regDev.deviceId, regDev.primary.hardwareId)
 
     createDeviceAssignment(regDev.deviceId, regDev.primary.hardwareId) {
-      status shouldBe StatusCodes.OK
-      responseAs[List[Unit]] shouldBe empty
+      status shouldBe StatusCodes.BadRequest
+
+      val response = responseAs[AssignmentCreateResult]
+
+      response.affected shouldBe empty
+
+      val (deviceId, errors) = response.notAffected.loneElement
+      val (ecuId, error) = errors.loneElement
+      deviceId shouldBe regDev.deviceId
+      ecuId shouldBe regDev.primary.ecuSerial
+      error.code shouldBe ErrorCodes.NotAffectedRunningAssignment
     }
   }
 

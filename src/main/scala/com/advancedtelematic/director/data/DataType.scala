@@ -104,7 +104,7 @@ object DbDataType {
   }
 
   case class Assignment(ns: Namespace, deviceId: DeviceId, ecuId: EcuIdentifier, ecuTargetId: EcuTargetId,
-                        correlationId: CorrelationId, inFlight: Boolean) {
+                        correlationId: CorrelationId, inFlight: Boolean, createdAt: Instant) {
 
     def toProcessedAssignment(successful: Boolean, canceled: Boolean = false, result: Option[String] = None): ProcessedAssignment =
       ProcessedAssignment(ns, deviceId, ecuId, ecuTargetId, correlationId, successful, result, canceled)
@@ -152,7 +152,7 @@ object UptaneDataType {
 
   final case class FileInfo(hashes: Hashes, length: Long)
   final case class Image(filepath: TargetFilename, fileinfo: FileInfo)
-  final case class TargetImage(image: Image, uri: Option[Uri])
+  final case class TargetImage(image: Image, uri: Option[Uri], createdAt: Instant)
 
   object Hashes {
     def apply(checksum: Checksum): Hashes = {

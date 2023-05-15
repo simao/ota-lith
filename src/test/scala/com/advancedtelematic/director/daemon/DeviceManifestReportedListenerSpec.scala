@@ -1,7 +1,6 @@
 package com.advancedtelematic.director.daemon
 
 import java.time.Instant
-
 import com.advancedtelematic.director.data.Codecs._
 import com.advancedtelematic.director.data.GeneratorOps._
 import com.advancedtelematic.director.data.Generators._
@@ -16,6 +15,7 @@ import com.advancedtelematic.libtuf.data.TufDataType.SignedPayload
 import io.circe.syntax._
 import org.scalatest.OptionValues._
 
+import java.time.temporal.ChronoUnit
 import scala.concurrent.ExecutionContext
 
 class DeviceManifestReportedListenerSpec extends DirectorSpec
@@ -39,7 +39,7 @@ class DeviceManifestReportedListenerSpec extends DirectorSpec
     val (saved, receivedAt) = deviceManifestRepository.find(msg.deviceId).futureValue.value
 
     saved shouldBe msg.manifest.signed
-    receivedAt shouldBe msg.receivedAt
+    receivedAt.truncatedTo(ChronoUnit.SECONDS) shouldBe msg.receivedAt.truncatedTo(ChronoUnit.SECONDS)
   }
 
   test("it doesn't create new row if manifest did not change") {

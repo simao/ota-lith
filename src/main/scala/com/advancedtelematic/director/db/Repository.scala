@@ -420,6 +420,18 @@ protected class EcuRepository()(implicit val db: Database, val ec: ExecutionCont
   def findDevicePrimary(ns: Namespace, deviceId: DeviceId): Future[Ecu] =
     db.run(findDevicePrimaryAction(ns, deviceId))
 
+  def findDevicePrimaryIds(ns: Namespace, deviceId: Set[DeviceId]): Future[Map[DeviceId, EcuIdentifier]] = db.run {
+    Schema.allDevices
+      .filter(_.namespace === ns)
+      .filter(_.id.inSet(deviceId))
+      .join(Schema.activeEcus)
+      .on { case (d, e) => d.id === e.deviceId && d.primaryEcu === e.ecuSerial && d.namespace === e.namespace }
+      .map { case (_, ecu) => ecu.deviceId -> ecu.ecuSerial }
+      .result
+      .map(_.toMap)
+  }
+
+
   protected[db] def setActiveEcus(ns: Namespace, deviceId: DeviceId, ecus: Set[EcuIdentifier]): DBIO[Unit] = {
     val ecuQuery = Schema.allEcus.filter(_.namespace === ns).filter(_.deviceId === deviceId)
 
