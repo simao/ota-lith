@@ -30,7 +30,9 @@ import com.advancedtelematic.libtuf.data.ClientDataType.{ClientTargetItem, RootR
 import scala.concurrent.{ExecutionContext, Future}
 import com.advancedtelematic.director.data.ClientDataType._
 
-case class OfflineUpdateRequest(values: Map[TargetFilename, ClientTargetItem])
+import java.time.Instant
+
+case class OfflineUpdateRequest(values: Map[TargetFilename, ClientTargetItem], expiresAt: Option[Instant])
 
 class AdminResource(extractNamespace: Directive1[Namespace], val keyserverClient: KeyserverClient)
                    (implicit val db: Database, val ec: ExecutionContext, messageBusPublisher: MessageBusPublisher)
@@ -97,7 +99,7 @@ class AdminResource(extractNamespace: Directive1[Namespace], val keyserverClient
       } ~
       (path("offline-updates" / AdminRoleNamePathMatcher) & UserRepoId(ns)){ (offlineTargetName, repoId) =>
         (post & entity(as[OfflineUpdateRequest])) { req =>
-          val f = offlineUpdates.set(repoId, offlineTargetName, req.values)
+          val f = offlineUpdates.set(repoId, offlineTargetName, req.values, req.expiresAt)
           complete(f.map(_ => StatusCodes.OK))
         }
       } ~

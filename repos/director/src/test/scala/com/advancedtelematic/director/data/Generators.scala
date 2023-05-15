@@ -85,7 +85,7 @@ trait Generators {
   } yield TargetUpdateRequest(None, targetUpdate)
 
   val GenMultiTargetUpdateRequest: Gen[MultiTargetUpdate] = for {
-    targets <- Gen.mapOf(Gen.zip(GenHardwareIdentifier, GenTargetUpdateRequest))
+    targets <- Gen.nonEmptyMap(Gen.zip(GenHardwareIdentifier, GenTargetUpdateRequest))
   } yield MultiTargetUpdate(targets)
 
 

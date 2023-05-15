@@ -8,9 +8,10 @@ import com.advancedtelematic.libats.slick.db.SlickAnyVal._
 import com.advancedtelematic.libats.slick.db.SlickUUIDKey._
 import com.advancedtelematic.libats.slick.db.SlickValidatedGeneric._
 import org.slf4j.LoggerFactory
+import slick.dbio.DBIOAction.successful
 import slick.jdbc.MySQLProfile.api._
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.util.{Failure, Success, Try}
 
 class CompiledManifestExecutor()(implicit val db: Database, val ec: ExecutionContext) {
@@ -43,10 +44,16 @@ class CompiledManifestExecutor()(implicit val db: Database, val ec: ExecutionCon
     val changedEcuStatus = newStatus.ecuStatus.filter { case (ecuId, ecuTargetId) =>  oldStatus.ecuStatus.get(ecuId).flatten != ecuTargetId }
     val newEcuTargets = newStatus.ecuTargets -- oldStatus.ecuTargets.keys
 
+    val deleteAssignmentsIO =
+      if (assignmentsToDelete.isEmpty)
+        DBIO.successful(())
+      else
+        Schema.assignments.filter(_.deviceId === deviceId).filter(_.ecuId.inSet(assignmentsToDelete)).delete
+
     for {
       _ <- DBIO.sequence(newEcuTargets.values.map(Schema.ecuTargets.insertOrUpdate))
       _ <- DBIO.sequence(changedEcuStatus.map { case (ecu, target) => updateEcuAction(deviceId, ecu, target) })
-      _ <- Schema.assignments.filter(_.deviceId === deviceId).filter(_.ecuId.inSet(assignmentsToDelete)).delete
+      _ <- deleteAssignmentsIO
       _ <- DBIO.sequence(newProcessedAssignments.map(Schema.processedAssignments += _).toList )
       _ <- updateMetadataOutdatedFlagAction(deviceId, oldStatus, newStatus)
     } yield ()

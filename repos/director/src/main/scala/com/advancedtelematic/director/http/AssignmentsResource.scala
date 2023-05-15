@@ -1,7 +1,8 @@
 package com.advancedtelematic.director.http
 
-import java.time.Instant
+import akka.http.scaladsl.marshalling.ToResponseMarshallable
 
+import java.time.Instant
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server._
 import akka.http.scaladsl.unmarshalling.PredefinedFromStringUnmarshallers.CsvSeq
@@ -18,6 +19,7 @@ import slick.jdbc.MySQLProfile.api.Database
 
 import scala.concurrent.{ExecutionContext, Future}
 import cats.implicits._
+import com.advancedtelematic.director.http.DeviceAssignments.AssignmentCreateResult
 
 class AssignmentsResource(extractNamespace: Directive1[Namespace])
                          (implicit val db: Database, val ec: ExecutionContext, messageBusPublisher: MessageBusPublisher) {
@@ -26,14 +28,14 @@ class AssignmentsResource(extractNamespace: Directive1[Namespace])
 
   val deviceAssignments = new DeviceAssignments()
 
-  private def createAssignments(ns: Namespace, req: AssignUpdateRequest): Future[Seq[DeviceId]] = {
+  private def createAssignments(ns: Namespace, req: AssignUpdateRequest): Future[AssignmentCreateResult] = {
     val assignments = deviceAssignments.createForDevices(ns, req.correlationId, req.devices, req.mtuId)
 
-    assignments.flatMap { assignments =>
-      assignments.toList.traverse_ { a =>
-        val msg: DeviceUpdateEvent = DeviceUpdateAssigned(ns, Instant.now(), req.correlationId, a.deviceId)
+    assignments.flatMap { createResult =>
+      createResult.affected.toList.traverse_ { deviceId =>
+        val msg: DeviceUpdateEvent = DeviceUpdateAssigned(ns, Instant.now(), req.correlationId, deviceId)
         messageBusPublisher.publishSafe(msg)
-      }.map(_ => assignments.map(_.deviceId))
+      }.map(_ => createResult)
     }
   }
 
@@ -53,10 +55,12 @@ class AssignmentsResource(extractNamespace: Directive1[Namespace])
               val f = deviceAssignments.findAffectedDevices(ns, req.devices, req.mtuId)
               complete(f)
             } else {
-              val f = createAssignments(ns, req).map {
-                case affected if affected.nonEmpty => StatusCodes.Created -> affected
-                case affected => StatusCodes.OK -> affected
+              val f: Future[ToResponseMarshallable] = createAssignments(ns, req).map {
+                case result if result.affected.nonEmpty => StatusCodes.Created -> result
+                case result if result.notAffected.nonEmpty => StatusCodes.BadRequest -> result
+                case result => StatusCodes.OK -> result
               }
+
               complete(f)
             }
           }

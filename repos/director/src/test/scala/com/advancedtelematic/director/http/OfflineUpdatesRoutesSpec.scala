@@ -21,6 +21,10 @@ import com.advancedtelematic.libats.messaging_datatype.DataType.DeviceId._
 import cats.syntax.show._
 import com.advancedtelematic.director.data.Codecs._
 
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import cats.syntax.option._
+
 class OfflineUpdatesRoutesSpec extends DirectorSpec with RouteResourceSpec
   with RepoNamespaceRepositorySupport
   with AdminResources
@@ -34,7 +38,7 @@ class OfflineUpdatesRoutesSpec extends DirectorSpec with RouteResourceSpec
   }
   
   val GenOfflineUpdateRequest = GenTarget.map { case (filename, t) =>
-    OfflineUpdateRequest(Map(filename -> t))
+    OfflineUpdateRequest(Map(filename -> t), None)
   }
 
   testWithRepo("can add + retrieve an offline update") { implicit ns =>
@@ -178,7 +182,7 @@ class OfflineUpdatesRoutesSpec extends DirectorSpec with RouteResourceSpec
       status shouldBe StatusCodes.OK
     }
 
-    val emptyReq = OfflineUpdateRequest(Map.empty)
+    val emptyReq = OfflineUpdateRequest(Map.empty, None)
 
     Post(apiUri(s"admin/repo/offline-updates/emea"), emptyReq).namespaced ~> routes ~> check {
       status shouldBe StatusCodes.OK
@@ -243,6 +247,45 @@ class OfflineUpdatesRoutesSpec extends DirectorSpec with RouteResourceSpec
       val resp = responseAs[SignedPayload[OfflineSnapshotRole]]
       resp.signed.version shouldBe 2
       resp.signed.expires.isAfter(expiresAt) shouldBe true
+    }
+  }
+
+  testWithRepo("Can set expire date when creating offline update") { implicit ns =>
+    val expiresAt = Instant.now().plus(2 * 365, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS)
+    val req = GenOfflineUpdateRequest.generate.copy(expiresAt = expiresAt.some)
+
+    Post(apiUri(s"admin/repo/offline-updates/emea"), req).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+    }
+
+    Get(apiUri("admin/repo/offline-snapshot.json")).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+      val resp = responseAs[SignedPayload[OfflineSnapshotRole]]
+      resp.signed.version shouldBe 1
+      resp.signed.expires shouldBe expiresAt
+    }
+  }
+
+  testWithRepo("Expire date is set to latest of offline updates expire dates") { implicit ns =>
+    val expiresAt = Instant.now().plus(2 * 365, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS)
+    val req = GenOfflineUpdateRequest.generate.copy(expiresAt = expiresAt.some)
+
+    Post(apiUri(s"admin/repo/offline-updates/emea"), req).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+    }
+
+    val expiresAtAus = Instant.now().plus(400, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS)
+    val reqAus = GenOfflineUpdateRequest.generate.copy(expiresAt = expiresAtAus.some)
+
+    Post(apiUri(s"admin/repo/offline-updates/aus"), reqAus).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+    }
+
+    Get(apiUri("admin/repo/offline-snapshot.json")).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+      val resp = responseAs[SignedPayload[OfflineSnapshotRole]]
+      resp.signed.version shouldBe 2
+      resp.signed.expires shouldBe expiresAt
     }
   }
 }

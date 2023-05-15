@@ -27,8 +27,8 @@ class LegacyRoutes(extractNamespace: Directive1[Namespace])(implicit val db: Dat
     val correlationId = MultiTargetUpdateId(mtuId.uuid)
     val assignment = deviceAssignments.createForDevice(ns, correlationId, deviceId, mtuId)
 
-    assignment.map { a =>
-      val msg: DeviceUpdateEvent = DeviceUpdateAssigned(ns, Instant.now(), correlationId, a.deviceId)
+    assignment.map { d =>
+      val msg: DeviceUpdateEvent = DeviceUpdateAssigned(ns, Instant.now(), correlationId, d)
       messageBusPublisher.publishSafe(msg)
     }
   }

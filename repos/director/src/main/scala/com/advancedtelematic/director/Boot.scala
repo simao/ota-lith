@@ -7,6 +7,7 @@ import java.security.Security
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.Http.ServerBinding
 import akka.http.scaladsl.server.{Directives, Route}
+import akka.http.scaladsl.settings.ParserSettings
 import com.advancedtelematic.director.http.DirectorRoutes
 import com.advancedtelematic.libats.http.{BootApp, BootAppDatabaseConfig, BootAppDefaultConfig}
 import com.advancedtelematic.libats.http.LogDirectives.logResponseMetrics
@@ -48,7 +49,7 @@ class DirectorBoot(override val globalConfig: Config,
 
   private lazy val log = LoggerFactory.getLogger(this.getClass)
 
-  log.info(s"Starting $version on http://$host:$port")
+  log.info(s"Starting $nameVersion on http://$host:$port")
 
   lazy val tracing = Tracing.fromConfig(globalConfig, projectName)
 
@@ -58,7 +59,7 @@ class DirectorBoot(override val globalConfig: Config,
   def bind(): Future[ServerBinding] = {
     val routes: Route =
       DbHealthResource(versionMap, dependencies = Seq(new ServiceHealthCheck(tufUri))).route ~
-        (logRequestResult("directorv2-request-result" -> requestLogLevel) & versionHeaders(version) & requestMetrics(metricRegistry) & logResponseMetrics(projectName) & tracing.traceRequests) { implicit requestTracing =>
+        (logRequestResult("directorv2-request-result" -> requestLogLevel) & versionHeaders(nameVersion) & requestMetrics(metricRegistry) & logResponseMetrics(projectName) & tracing.traceRequests) { implicit requestTracing =>
           prometheusMetricsRoutes ~
             new DirectorRoutes(keyserverClient, allowEcuReplacement).routes
         }

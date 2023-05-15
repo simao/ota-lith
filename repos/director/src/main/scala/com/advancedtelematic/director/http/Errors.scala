@@ -3,10 +3,11 @@ package com.advancedtelematic.director.http
 import akka.http.scaladsl.model.StatusCodes
 import cats.Show
 import com.advancedtelematic.director.data.DataType.AdminRoleName
+import com.advancedtelematic.director.data.DbDataType.HardwareUpdate
 import com.advancedtelematic.libats.data.DataType.Namespace
 import com.advancedtelematic.libats.data.{EcuIdentifier, ErrorCode}
-import com.advancedtelematic.libats.http.Errors.{Error, MissingEntityId, RawError}
-import com.advancedtelematic.libats.messaging_datatype.DataType.DeviceId
+import com.advancedtelematic.libats.http.Errors.{Error, JsonError, MissingEntityId, RawError}
+import com.advancedtelematic.libats.messaging_datatype.DataType.{DeviceId, UpdateId}
 import com.advancedtelematic.libtuf.data.ClientDataType.TufRole
 import com.advancedtelematic.libtuf.data.TufDataType.{RepoId, TargetFilename}
 import com.advancedtelematic.libtuf.data.TufDataType.RoleType.RoleType
@@ -30,10 +31,40 @@ object ErrorCodes {
   val MissingAdminRole = ErrorCode("missing_admin_role")
 
   val MissingTarget = ErrorCode("missing_target")
+
+  val NotAffectedRunningAssignment = ErrorCode("not_affected_running_assignment")
+
+  val InstalledTargetIsUpdate = ErrorCode("installed_target_is_update")
+
+  val DeviceNoCompatibleHardware = ErrorCode("device_no_compatible_hardware")
+
+  val NotAffectedByMtu = ErrorCode("not_affected_by_mtu")
+
+  val InvalidMtu = ErrorCode("invalid_mtu")
 }
 
 object Errors {
   val PrimaryIsNotListedForDevice = RawError(ErrorCodes.PrimaryIsNotListedForDevice, StatusCodes.BadRequest, "The given primary ecu isn't part of ecus for the device")
+
+  case class NotAffectedRunningAssignment(deviceId: DeviceId, ecuIdentifier: EcuIdentifier) extends Error(ErrorCodes.NotAffectedRunningAssignment,
+    StatusCodes.BadRequest, s"${deviceId}/${ecuIdentifier} not affected because ecu has a running assignment")
+
+  case class InstalledTargetIsUpdate(deviceId: DeviceId, ecuIdentifier: EcuIdentifier, update: HardwareUpdate) extends Error(ErrorCodes.InstalledTargetIsUpdate,
+    StatusCodes.BadRequest,
+    s"Ecu $deviceId/$ecuIdentifier not affected for $update, installed target is already the target update"
+  )
+
+  case class DeviceNoCompatibleHardware(deviceId: DeviceId, mtuId: UpdateId) extends Error(ErrorCodes.DeviceNoCompatibleHardware,
+    StatusCodes.BadRequest,
+    s"Ecu $deviceId not affected for $mtuId, device does not have any ecu with compatible hardware"
+  )
+
+  case class NotAffectedByMtu(deviceId: DeviceId, ecuIdentifier: EcuIdentifier, mtuId: UpdateId) extends Error(ErrorCodes.NotAffectedByMtu,
+    StatusCodes.BadRequest,
+    s"ecu $deviceId$ecuIdentifier not affected by $mtuId"
+  )
+
+  case class InvalidMtu(_msg: String) extends Error(ErrorCodes.InvalidMtu, StatusCodes.BadRequest, "Invalid MTU: "+ _msg)
 
   case class MissingAdminRole(repoId: RepoId, name: AdminRoleName) extends Error(ErrorCodes.MissingAdminRole, StatusCodes.NotFound, s"admin role $repoId/$name not found")
 

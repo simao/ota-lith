@@ -44,8 +44,16 @@ class MultiTargetUpdatesResourceSpec extends DirectorSpec
     }
   }
 
-
   testWithNamespace("accepts mtu with an update") { implicit ns =>
     createMtuOk()
+  }
+
+  testWithNamespace("does not accept empty mtu") { implicit ns =>
+    val mtu = MultiTargetUpdate(Map.empty)
+
+    Post(apiUri("multi_target_updates"), mtu).namespaced ~> routes ~> check {
+      status shouldBe StatusCodes.BadRequest
+      responseAs[ErrorRepresentation].code shouldBe ErrorCodes.InvalidMtu
+    }
   }
 }
