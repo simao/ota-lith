@@ -19,6 +19,7 @@ import com.advancedtelematic.libtuf_server.repo.server.{SignedRoleProvider, Targ
 import io.circe.syntax._
 import slick.jdbc.MySQLProfile.api._
 
+import java.time.Instant
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -30,6 +31,8 @@ protected [repo] class DeviceSignedRoleProvider(deviceId: DeviceId)(implicit val
 
   override def persistAll(repoId: RepoId, roles: List[SignedRole[_]]): Future[List[SignedRole[_]]] =
     dbDeviceRoleRepository.persistAll(roles.map(_.toDbDeviceRole(deviceId))).map(_ => roles)
+
+  override def expireNotBefore(repoId: RepoId): Future[Option[Instant]] = FastFuture.successful(None)
 }
 
 

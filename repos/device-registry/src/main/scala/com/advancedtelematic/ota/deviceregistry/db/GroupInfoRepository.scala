@@ -9,7 +9,6 @@
 package com.advancedtelematic.ota.deviceregistry.db
 
 import java.time.Instant
-
 import com.advancedtelematic.libats.data.DataType.Namespace
 import com.advancedtelematic.libats.data.PaginationResult
 import com.advancedtelematic.libats.slick.db.SlickExtensions._
@@ -18,10 +17,10 @@ import com.advancedtelematic.libats.slick.db.SlickValidatedGeneric.validatedStri
 import com.advancedtelematic.ota.deviceregistry.common.Errors
 import com.advancedtelematic.ota.deviceregistry.data
 import com.advancedtelematic.ota.deviceregistry.data.Group.GroupId
+import com.advancedtelematic.ota.deviceregistry.data.GroupSortBy.GroupSortBy
 import com.advancedtelematic.ota.deviceregistry.data.GroupType.GroupType
-import com.advancedtelematic.ota.deviceregistry.data.SortBy.SortBy
 import com.advancedtelematic.ota.deviceregistry.data.{Group, GroupExpression, GroupName, GroupType, TagId}
-import com.advancedtelematic.ota.deviceregistry.db.DbOps.{PaginationResultOps, sortBySlickOrderedConversion}
+import com.advancedtelematic.ota.deviceregistry.db.DbOps.{PaginationResultOps, SortBySlickOrderedGroupConversion}
 import com.advancedtelematic.ota.deviceregistry.db.SlickMappings._
 import slick.jdbc.MySQLProfile.api._
 
@@ -44,11 +43,11 @@ object GroupInfoRepository {
 
   val groupInfos = TableQuery[GroupInfoTable]
 
-  def list(namespace: Namespace, offset: Option[Long], limit: Option[Long], sortBy: SortBy, nameContains: Option[String])(implicit ec: ExecutionContext): DBIO[PaginationResult[Group]] =
+  def list(namespace: Namespace, offset: Option[Long], limit: Option[Long], sortBy: GroupSortBy, nameContains: Option[String])(implicit ec: ExecutionContext): DBIO[PaginationResult[Group]] =
     groupInfos
       .filter(_.namespace === namespace)
       .maybeContains(_.groupName, nameContains)
-      .paginateAndSortResult(sortBy, offset.orDefaultOffset, limit.orDefaultLimit)
+      .paginateAndSortResult(sortBy.orderedConv(), offset.orDefaultOffset, limit.orDefaultLimit)
 
   def findById(id: GroupId)(implicit db: Database, ec: ExecutionContext): Future[Group] =
     db.run(findByIdAction(id))
@@ -76,7 +75,7 @@ object GroupInfoRepository {
       .filter(_.id === id)
       .map(_.groupName)
       .update(newGroupName)
-      .handleIntegrityErrors(Errors.ConflictingDevice)
+      .handleIntegrityErrors(Errors.ConflictingGroupName(newGroupName))
       .handleSingleUpdateError(Errors.MissingGroup)
 
   def groupInfoNamespace(groupId: GroupId)(implicit ec: ExecutionContext): DBIO[Namespace] =

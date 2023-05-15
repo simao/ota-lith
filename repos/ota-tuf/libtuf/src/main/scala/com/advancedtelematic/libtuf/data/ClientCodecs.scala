@@ -71,6 +71,9 @@ object ClientCodecs {
   implicit val clientTargetItemEncoder: Encoder[ClientTargetItem] = deriveEncoder
   implicit val clientTargetItemDecoder: Decoder[ClientTargetItem] = deriveDecoder
 
+  implicit val delegationClientTargetItemEncoder: Encoder[DelegationClientTargetItem] = deriveEncoder
+  implicit val delegationClientTargetItemDecoder: Decoder[DelegationClientTargetItem] = deriveDecoder
+
   implicit val metaItemEncoder: Encoder[MetaItem] = deriveEncoder
   implicit val metaItemDecoder: Decoder[MetaItem] = deriveDecoder
 
@@ -80,6 +83,9 @@ object ClientCodecs {
 
   implicit val delegatedRoleNameEncoder: Encoder[DelegatedRoleName] = ValidatedString.validatedStringEncoder
   implicit val delegatedRoleNameDecoder: Decoder[DelegatedRoleName] = ValidatedString.validatedStringDecoder
+
+  implicit val delegationFriendlyNameEncoder: Encoder[DelegationFriendlyName] = ValidatedString.validatedStringEncoder
+  implicit val delegationFriendlyNameDecoder: Decoder[DelegationFriendlyName] = ValidatedString.validatedStringDecoder
 
   implicit val delegatedPathPatternEncoder: Encoder[DelegatedPathPattern] = ValidatedString.validatedStringEncoder
   implicit val delegatedPathPatternDecoder: Decoder[DelegatedPathPattern] = ValidatedString.validatedStringDecoder
@@ -102,6 +108,9 @@ object ClientCodecs {
   implicit val offlineSnapshotRoleDecoder: Decoder[OfflineSnapshotRole] = deriveDecoder[OfflineSnapshotRole].validateRoleType
   implicit val offlineSnapshotRoleCodec: Codec[OfflineSnapshotRole] = Codec.from(offlineSnapshotRoleDecoder, offlineSnapshotRoleEncoder)
 
+  implicit val remoteSessionssRoleEncoder: Encoder[RemoteSessionsRole] = deriveEncoder[RemoteSessionsRole].encodeRoleType
+  implicit val remoteSessionsRoleDecoder: Decoder[RemoteSessionsRole] = deriveDecoder[RemoteSessionsRole].validateRoleType
+  implicit val remoteSessionsRoleCodec: Codec[RemoteSessionsRole] = Codec.from(remoteSessionsRoleDecoder, remoteSessionssRoleEncoder)  
 
   implicit val snapshotRoleEncoder: Encoder[SnapshotRole] = deriveEncoder[SnapshotRole].encodeRoleType
   implicit val snapshotRoleDecoder: Decoder[SnapshotRole] = deriveDecoder[SnapshotRole].validateRoleType

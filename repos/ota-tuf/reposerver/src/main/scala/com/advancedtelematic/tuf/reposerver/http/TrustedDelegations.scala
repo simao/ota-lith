@@ -5,7 +5,7 @@ import cats.data.Validated._
 import cats.data.{NonEmptyList, ValidatedNel}
 import com.advancedtelematic.libats.http.Errors.MissingEntityId
 import com.advancedtelematic.tuf.reposerver.http.Errors._
-import com.advancedtelematic.libtuf.data.ClientDataType.{Delegation, Delegations, TargetsRole}
+import com.advancedtelematic.libtuf.data.ClientDataType.{DelegatedRoleName, Delegation, Delegations, TargetsRole}
 import com.advancedtelematic.libtuf.data.TufDataType.TufKey
 import com.advancedtelematic.libtuf.data.TufDataType.RepoId
 import com.advancedtelematic.libtuf.data.ClientCodecs._
@@ -26,7 +26,7 @@ class TrustedDelegations(implicit val db: Database, val ec: ExecutionContext) ex
     }
   }
 
-  def validate(repoId: RepoId, delegations: Option[Delegations]): ValidatedNel[String, Delegations] = {
+  def validate(delegations: Option[Delegations]): ValidatedNel[String, Delegations] = {
     delegations match {
       case Some(s) => validate(s)
       // an empty delegations block is valid
@@ -35,12 +35,18 @@ class TrustedDelegations(implicit val db: Database, val ec: ExecutionContext) ex
   }
 
   def validate(delegations: Delegations): ValidatedNel[String, Delegations] = {
+    val nameErrors = for {
+      delegation <- delegations.roles if DelegatedRoleName.delegatedRoleNameValidation(delegation.name.value).isInvalid
+    } yield DelegatedRoleName.delegatedRoleNameValidation(delegation.name.value).toString()
+
     val keyErrors = for {
       delegation <- delegations.roles
       keyid <- delegation.keyids if !delegations.keys.contains(keyid)
     } yield "Invalid delegation key referenced by: " + delegation.name
-    if (keyErrors.nonEmpty) {
-      NonEmptyList.fromListUnsafe(keyErrors).invalid[Delegations]
+
+    val errorsList = nameErrors.++(keyErrors)
+    if (errorsList.nonEmpty)  {
+      NonEmptyList.fromListUnsafe(errorsList).invalid[Delegations]
     } else
       delegations.validNel[String]
   }
@@ -70,6 +76,21 @@ class TrustedDelegations(implicit val db: Database, val ec: ExecutionContext) ex
     newTargetsRole <- signedRoleGeneration.genTargetsFromExistingItems(repoId, Some(delegationsBlock))
     json <- signedRoleGeneration.signAllRolesFor(repoId, newTargetsRole)
   } yield json
+
+  import scala.async.Async._
+
+  def remove(repoId: RepoId, delegatedRoleName: DelegatedRoleName)(signedRoleGeneration: SignedRoleGeneration): Future[Unit] = async {
+    val delegations = await(getTrustedDelegationsBlock(repoId))
+
+    val newDelegations = delegations.map { d =>
+      val newRoles = d.roles.filter(_.name != delegatedRoleName)
+      d.copy(roles = newRoles)
+    }
+
+    val newTargets = await(signedRoleGeneration.genTargetsFromExistingItems(repoId, newDelegations))
+
+    await(signedRoleGeneration.signAllRolesFor(repoId, newTargets))
+  }
 
   def addKeys(repoId: RepoId, inKeys: List[TufKey])(signedRoleGeneration: SignedRoleGeneration): Future[Any] = for {
     delegationsBlock <- getTrustedDelegationsBlock(repoId).map {

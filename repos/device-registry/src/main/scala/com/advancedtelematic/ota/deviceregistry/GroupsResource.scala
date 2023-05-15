@@ -23,8 +23,8 @@ import com.advancedtelematic.libats.messaging_datatype.DataType.DeviceId
 import com.advancedtelematic.ota.deviceregistry.common.Errors
 import com.advancedtelematic.ota.deviceregistry.data.Device.DeviceOemId
 import com.advancedtelematic.ota.deviceregistry.data.Group.GroupId
+import com.advancedtelematic.ota.deviceregistry.data.GroupSortBy.GroupSortBy
 import com.advancedtelematic.ota.deviceregistry.data.GroupType.GroupType
-import com.advancedtelematic.ota.deviceregistry.data.SortBy.SortBy
 import com.advancedtelematic.ota.deviceregistry.data._
 import com.advancedtelematic.ota.deviceregistry.db.{DeviceRepository, GroupInfoRepository, GroupMemberRepository}
 import com.advancedtelematic.ota.deviceregistry.http.nonNegativeLong
@@ -48,10 +48,10 @@ class GroupsResource(namespaceExtractor: Directive1[Namespace], deviceNamespaceA
   implicit val groupTypeUnmarshaller: FromStringUnmarshaller[GroupType] = Unmarshaller.strict(GroupType.withName)
   implicit val groupNameUnmarshaller: FromStringUnmarshaller[GroupName] = Unmarshaller.strict(GroupName.validatedGroupName.from(_).valueOr(throw _))
 
-  implicit val sortByUnmarshaller: FromStringUnmarshaller[SortBy] = Unmarshaller.strict {
+  implicit val sortByUnmarshaller: FromStringUnmarshaller[GroupSortBy] = Unmarshaller.strict {
     _.toLowerCase match {
-      case "name"      => SortBy.Name
-      case "createdat" => SortBy.CreatedAt
+      case "name"      => GroupSortBy.Name
+      case "createdat" => GroupSortBy.CreatedAt
       case s           => throw new IllegalArgumentException(s"Invalid value for sorting parameter: '$s'.")
     }
   }
@@ -63,7 +63,7 @@ class GroupsResource(namespaceExtractor: Directive1[Namespace], deviceNamespaceA
       complete(groupMembership.listDevices(groupId, offset, limit))
     }
 
-  def listGroups(ns: Namespace, offset: Option[Long], limit: Option[Long], sortBy: SortBy, nameContains: Option[String]): Route =
+  def listGroups(ns: Namespace, offset: Option[Long], limit: Option[Long], sortBy: GroupSortBy, nameContains: Option[String]): Route =
     complete(db.run(GroupInfoRepository.list(ns, offset, limit, sortBy, nameContains)))
 
   def getGroup(groupId: GroupId): Route =
@@ -131,8 +131,8 @@ class GroupsResource(namespaceExtractor: Directive1[Namespace], deviceNamespaceA
   val route: Route =
     (pathPrefix("device_groups") & namespaceExtractor) { ns =>
       pathEnd {
-        (get & parameters('offset.as(nonNegativeLong).?, 'limit.as(nonNegativeLong).?, 'sortBy.as[SortBy].?, 'nameContains.as[String].?)) {
-          (offset, limit, sortBy, nameContains) => listGroups(ns, offset, limit, sortBy.getOrElse(SortBy.Name), nameContains)
+        (get & parameters('offset.as(nonNegativeLong).?, 'limit.as(nonNegativeLong).?, 'sortBy.as[GroupSortBy].?, 'nameContains.as[String].?)) {
+          (offset, limit, sortBy, nameContains) => listGroups(ns, offset, limit, sortBy.getOrElse(GroupSortBy.Name), nameContains)
         } ~
         post {
           entity(as[CreateGroup]) { req =>

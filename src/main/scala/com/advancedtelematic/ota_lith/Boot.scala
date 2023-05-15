@@ -1,7 +1,6 @@
 package com.advancedtelematic.ota_lith
 
 import akka.actor.ActorSystem
-import com.advancedtelematic.campaigner.{CampaignerBoot, CampaignerDaemonBoot}
 import com.advancedtelematic.director.DirectorBoot
 import com.advancedtelematic.director.daemon.DirectorDaemonBoot
 import com.advancedtelematic.ota.deviceregistry.{DeviceRegistryBoot, DeviceRegistryDaemon}
@@ -33,9 +32,6 @@ object OtaLithBoot extends App {
 
   val deviceRegistryDbConfig = appConfig.getConfig("ats.device-registry.database")
   val deviceRegistryBind = new DeviceRegistryBoot(appConfig, deviceRegistryDbConfig, new MetricRegistry)(ActorSystem("deviceregistry-actor-system")).bind()
-
-  val campaignerDbConfig = appConfig.getConfig("ats.campaigner.database")
-  val campaignerBind = new CampaignerBoot(appConfig, campaignerDbConfig, new MetricRegistry)(ActorSystem("campaigner-actor-system")).bind()
 }
 
 object OtaLithDaemonBoot extends App {
@@ -48,7 +44,4 @@ object OtaLithDaemonBoot extends App {
 
   val deviceRegistryDbConfig = appConfig.getConfig("ats.device-registry.database")
   val deviceRegistryDaemonBind = new DeviceRegistryDaemon(appConfig, deviceRegistryDbConfig, new MetricRegistry)(ActorSystem("deviceregistry-actor-system")).bind()
-
-  val campaignerDbConfig = appConfig.getConfig("ats.campaigner.database")
-  val campaignerDaemonBind = new CampaignerDaemonBoot(appConfig, campaignerDbConfig, new MetricRegistry)(ActorSystem("campaigner-actor-system")).bind()
 }

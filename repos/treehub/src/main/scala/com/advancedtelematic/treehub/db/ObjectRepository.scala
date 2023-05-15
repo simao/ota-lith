@@ -65,7 +65,7 @@ protected class ObjectRepository()(implicit db: Database, ec: ExecutionContext) 
     db.run(findQuery(namespace, id).exists.result)
 
   def isUploaded(namespace: Namespace, id: ObjectId): Future[Boolean] =
-    db.run(findQuery(namespace, id).filter(_.status === ObjectStatus.UPLOADED).exists.result)
+    db.run(findQuery(namespace, id).filter(_.status === ObjectStatus.UPLOADED).length.result.map(_ > 0))
 
   def find(namespace: Namespace, id: ObjectId): Future[TObject] = {
     db.run(findAction(namespace, id))

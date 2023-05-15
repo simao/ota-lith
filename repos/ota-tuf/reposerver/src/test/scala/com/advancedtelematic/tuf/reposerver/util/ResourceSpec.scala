@@ -4,6 +4,7 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.{Directive1, Directives, Route}
 import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest}
+import akka.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 import akka.http.scaladsl.util.FastFuture
 import akka.stream.scaladsl.Source
 import akka.testkit.TestDuration
@@ -20,11 +21,13 @@ import com.advancedtelematic.libtuf.data.TufDataType.RoleType.RoleType
 import com.advancedtelematic.libtuf.data.TufDataType._
 import com.advancedtelematic.libtuf.http.ReposerverHttpClient
 import com.advancedtelematic.libtuf_server.keyserver.KeyserverClient
-import com.advancedtelematic.tuf.reposerver.http.{NamespaceValidation, TufReposerverRoutes}
+import com.advancedtelematic.tuf.reposerver.delegations.RemoteDelegationClient
+import com.advancedtelematic.tuf.reposerver.http.{Errors, NamespaceValidation, TufReposerverRoutes}
 import com.advancedtelematic.tuf.reposerver.target_store.{LocalTargetStoreEngine, TargetStore}
 import com.advancedtelematic.tuf.reposerver.util.ResourceSpec.TargetInfo
 import io.circe.{Codec, Json}
 import sttp.client.{NothingT, SttpBackend}
+import sttp.model.StatusCodes
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
@@ -34,7 +37,7 @@ import java.util.NoSuchElementException
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration._
 import scala.util.Try
 import scala.async.Async._
@@ -167,7 +170,7 @@ class FakeKeyserverClient extends KeyserverClient {
     keys.asScala.get(repoId).flatMap(_.values.find(_.pubkey.id == keyId)).getOrElse(throw KeyPairNotFound)
   } }
 
-  override def addOfflineUpdatesRole(repoId: RepoId): Future[Unit] = async {
+  private def addRoles(repoId: RepoId, roles: RoleType*): Future[Unit] = async {
     val rootRole = await(fetchUnsignedRoot(repoId))
 
     val rootKeyType = for {
@@ -179,17 +182,30 @@ class FakeKeyserverClient extends KeyserverClient {
     val keyType = rootKeyType.getOrElse(KeyType.default)
 
     val keyPair = keyType.crypto.generateKeyPair()
-    updateRepoKeys(repoId, RoleType.OFFLINE_UPDATES, keyPair)
-    updateRepoKeys(repoId, RoleType.OFFLINE_SNAPSHOT, keyPair)
-    val roleKeys = RoleKeys(Seq(keyPair.pubkey.id), 1)
 
-    val newRoles = rootRole.roles + (RoleType.OFFLINE_UPDATES -> roleKeys, RoleType.OFFLINE_UPDATES -> roleKeys)
+    val keys = roles.map { role => role -> keyPair }
+
+    keys.foreach { case (role, key) =>
+      updateRepoKeys(repoId, role, key)
+    }
+
+    val roleKeys = keys.map { case (role, key) =>
+      role -> RoleKeys(Seq(key.pubkey.id), 1)
+    }.toMap
+
+    val newRoles = rootRole.roles ++ roleKeys
     val newKeys = rootRole.keys + (keyPair.pubkey.id -> keyPair.pubkey)
 
     val newRootRole = RootRole(roles = newRoles, keys = newKeys, version = rootRole.version + 1, expires = rootRole.expires.plus(1, ChronoUnit.DAYS))
     val signed = await(sign(repoId, newRootRole))
     rootRoles.put(repoId, signed)
   }
+
+  override def addOfflineUpdatesRole(repoId: RepoId): Future[Unit] =
+    addRoles(repoId, RoleType.OFFLINE_UPDATES, RoleType.OFFLINE_SNAPSHOT)
+
+  override def addRemoteSessionsRole(repoId: RepoId): Future[Unit] =
+    addRoles(repoId, RoleType.REMOTE_SESSIONS)
 }
 
 trait LongHttpRequest {
@@ -239,6 +255,33 @@ object ResourceSpec {
   }
 }
 
+class FakeRemoteDelegationsClient()(implicit val system: ActorSystem) extends RemoteDelegationClient {
+
+  private val remotes = new ConcurrentHashMap[Uri, Json]()
+
+  private val uriHeaders = new ConcurrentHashMap[Uri, Map[String, String]]()
+
+  def setRemote(uri: Uri, delegatedTargets: Json, headers: Map[String, String] = Map.empty): Unit = {
+    remotes.put(uri, delegatedTargets)
+    uriHeaders.put(uri, headers)
+  }
+
+  override def fetch[Resp](uri: Uri, headers: Map[String, String])(implicit um: FromEntityUnmarshaller[Resp]): Future[Resp] = {
+    if(!remotes.containsKey(uri))
+      FastFuture.failed(Errors.DelegationRemoteFetchFailed(uri, StatusCodes.NotFound, s"[test] remote delegation not found: $uri"))
+    else if (uriHeaders.get(uri) != headers)
+      FastFuture.failed(Errors.DelegationRemoteFetchFailed(uri, StatusCodes.NotFound, s"[test] request headers do not match expected headers: $uri"))
+    else {
+      val delegationJson = remotes.get(uri)
+      val entity = HttpEntity.Strict(ContentTypes.`application/json`, ByteString(delegationJson.spaces2))
+
+      um(entity).recoverWith { case _ =>
+        FastFuture.failed(Errors.DelegationRemoteParseFailed(uri, "[test] invalid json"))
+      }
+    }
+  }
+}
+
 trait ResourceSpec extends TufReposerverSpec
   with ScalatestRouteTest
   with MysqlDatabaseSpec
@@ -253,6 +296,8 @@ trait ResourceSpec extends TufReposerverSpec
 
   val fakeKeyserverClient: FakeKeyserverClient = new FakeKeyserverClient
 
+  val fakeRemoteDelegationClient = new FakeRemoteDelegationsClient
+
   val defaultNamespaceExtractor = NamespaceDirectives.defaultNamespaceExtractor
 
   val namespaceValidation = new NamespaceValidation(defaultNamespaceExtractor) {
@@ -266,7 +311,7 @@ trait ResourceSpec extends TufReposerverSpec
   val memoryMessageBus = new MemoryMessageBus
   val messageBusPublisher = memoryMessageBus.publisher()
 
-  lazy val routes = new TufReposerverRoutes(fakeKeyserverClient, namespaceValidation, targetStore, messageBusPublisher).routes
+  lazy val routes = new TufReposerverRoutes(fakeKeyserverClient, namespaceValidation, targetStore, messageBusPublisher, fakeRemoteDelegationClient).routes
 
   implicit lazy val tracing = new NullServerRequestTracing
 

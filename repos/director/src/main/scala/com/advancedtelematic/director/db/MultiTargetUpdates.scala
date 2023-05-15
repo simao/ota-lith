@@ -13,6 +13,8 @@ class MultiTargetUpdates(implicit val db: Database, val ec: ExecutionContext)
   extends HardwareUpdateRepositorySupport with EcuTargetsRepositorySupport {
 
   def create(ns: Namespace, multiTargetUpdate: MultiTargetUpdate): Future[UpdateId] = {
+    require(multiTargetUpdate.targets.nonEmpty, "multiTargetUpdate.targets cannot be empty")
+
     val updateId = UpdateId.generate
 
     val hardwareUpdates = multiTargetUpdate.targets.map { case (hwId, targetUpdateReq) =>

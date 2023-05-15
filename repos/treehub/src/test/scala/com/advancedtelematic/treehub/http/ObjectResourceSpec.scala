@@ -5,6 +5,7 @@
 package com.advancedtelematic.treehub.http
 
 import akka.http.scaladsl.model._
+import akka.http.scaladsl.model.headers.RawHeader
 import akka.http.scaladsl.unmarshalling.PredefinedFromEntityUnmarshallers.byteArrayUnmarshaller
 import akka.pattern.ask
 import com.advancedtelematic.libats.http.Errors.MissingEntity
@@ -13,6 +14,7 @@ import com.advancedtelematic.util.FakeUsageUpdate.{CurrentBandwith, CurrentStora
 import com.advancedtelematic.util.ResourceSpec.ClientTObject
 import com.advancedtelematic.util.{LongHttpRequest, LongTest, ResourceSpec, TreeHubSpec}
 
+import java.util.UUID
 import scala.concurrent.duration._
 
 class ObjectResourceSpec extends TreeHubSpec with ResourceSpec with LongHttpRequest with LongTest with ObjectRepositorySupport {
@@ -215,6 +217,14 @@ class ObjectResourceSpec extends TreeHubSpec with ResourceSpec with LongHttpRequ
 
     Head(apiUri(s"objects/${obj.prefixedObjectId}")) ~> routes ~> check {
       status shouldBe StatusCodes.OK
+    }
+  }
+
+  test("returns 404 if commit doesn't exist, with a uuid as namespace") {
+    val obj = new ClientTObject()
+
+    Get(apiUri(s"objects/${obj.prefixedObjectId}")).addHeader(RawHeader("x-ats-namespace", UUID.randomUUID().toString)) ~> routes ~> check {
+      status shouldBe StatusCodes.NotFound
     }
   }
 }

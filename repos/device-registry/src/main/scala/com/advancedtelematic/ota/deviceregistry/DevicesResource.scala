@@ -9,7 +9,6 @@
 package com.advancedtelematic.ota.deviceregistry
 
 import java.time.{Instant, OffsetDateTime}
-
 import akka.actor.ActorSystem
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers._
@@ -22,6 +21,7 @@ import akka.util.ByteString
 import cats.syntax.either._
 import cats.syntax.show._
 import com.advancedtelematic.libats.data.DataType.{CorrelationId, Namespace, ResultCode}
+import com.advancedtelematic.libats.http.Errors.{JsonError, RawError}
 import com.advancedtelematic.libats.http.UUIDKeyAkka._
 import com.advancedtelematic.libats.http.ValidatedGenericMarshalling.validatedStringUnmarshaller
 import com.advancedtelematic.libats.messaging.MessageBusPublisher
@@ -31,21 +31,25 @@ import com.advancedtelematic.libats.messaging_datatype.MessageCodecs._
 import com.advancedtelematic.libats.messaging_datatype.Messages.{DeleteDeviceRequest, DeviceEventMessage}
 import com.advancedtelematic.libats.slick.db.SlickExtensions._
 import com.advancedtelematic.ota.deviceregistry.common.Errors
-import com.advancedtelematic.ota.deviceregistry.common.Errors.MissingDevice
+import com.advancedtelematic.ota.deviceregistry.common.Errors.{Codes, MissingDevice}
 import com.advancedtelematic.ota.deviceregistry.data.Codecs._
 import com.advancedtelematic.ota.deviceregistry.data.DataType.InstallationStatsLevel.InstallationStatsLevel
-import com.advancedtelematic.ota.deviceregistry.data.DataType.{DeviceT, DeviceUuids, InstallationStatsLevel, RenameTagId, SearchParams, UpdateDevice, UpdateTagValue}
+import com.advancedtelematic.ota.deviceregistry.data.DataType.{DeviceT, DeviceUuids, DevicesQuery, InstallationStatsLevel, RenameTagId, SearchParams, SetDevice, UpdateDevice, UpdateTagValue}
 import com.advancedtelematic.ota.deviceregistry.data.Device.{ActiveDeviceCount, DeviceOemId}
+import com.advancedtelematic.ota.deviceregistry.data.DeviceSortBy.DeviceSortBy
 import com.advancedtelematic.ota.deviceregistry.data.Group.GroupId
+import com.advancedtelematic.ota.deviceregistry.data.GroupExpressionAST.DeviceIdsQuery
+import com.advancedtelematic.ota.deviceregistry.data.GroupSortBy.GroupSortBy
 import com.advancedtelematic.ota.deviceregistry.data.GroupType.GroupType
-import com.advancedtelematic.ota.deviceregistry.data.SortBy.SortBy
+import com.advancedtelematic.ota.deviceregistry.data.SortDirection.SortDirection
 import com.advancedtelematic.ota.deviceregistry.data.TagId.validatedTagId
-import com.advancedtelematic.ota.deviceregistry.data.{GroupExpression, PackageId, SortBy, TagId}
+import com.advancedtelematic.ota.deviceregistry.data.{Device, DeviceSortBy, GroupExpression, GroupSortBy, PackageId, SortDirection, TagId}
 import com.advancedtelematic.ota.deviceregistry.db.DbOps.PaginationResultOps
 import com.advancedtelematic.ota.deviceregistry.db._
 import com.advancedtelematic.ota.deviceregistry.messages.DeviceCreated
 import com.advancedtelematic.ota.deviceregistry.http.nonNegativeLong
 import io.circe.Json
+import io.circe.syntax.EncoderOps
 import slick.jdbc.MySQLProfile.api._
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -85,11 +89,30 @@ object DevicesResource {
       }
     }
 
-  implicit val sortByUnmarshaller: FromStringUnmarshaller[SortBy] = Unmarshaller.strict {
+  implicit val deviceSortByUnmarshaller: FromStringUnmarshaller[DeviceSortBy] = Unmarshaller.strict {
     _.toLowerCase match {
-      case "name"      => SortBy.Name
-      case "createdat" => SortBy.CreatedAt
+      case "name"      => DeviceSortBy.Name
+      case "createdat" => DeviceSortBy.CreatedAt
+      case "deviceid" => DeviceSortBy.DeviceId
+      case "uuid" => DeviceSortBy.Uuid
+      case "activatedat" => DeviceSortBy.ActivatedAt
+      case "lastseen" => DeviceSortBy.LastSeen
       case s           => throw new IllegalArgumentException(s"Invalid value for sorting parameter: '$s'.")
+    }
+  }
+  implicit val groupSortByUnmarshaller: FromStringUnmarshaller[GroupSortBy] = Unmarshaller.strict {
+    _.toLowerCase match {
+      case "name" => GroupSortBy.Name
+      case "createdat" => GroupSortBy.CreatedAt
+      case s           => throw new IllegalArgumentException(s"Invalid value for sorting parameter: '$s'.")
+    }
+  }
+
+  implicit val sortDirectionUnmarshaller: FromStringUnmarshaller[SortDirection] = Unmarshaller.strict {
+    _.toLowerCase match {
+      case "asc" => SortDirection.Asc
+      case "desc" => SortDirection.Desc
+      case s => throw new IllegalArgumentException(s"Invalid value for sorting direction: '$s'.")
     }
   }
 
@@ -121,13 +144,11 @@ class DevicesResource(
       'groupId.as[GroupId].?,
       'nameContains.as[String].?,
       'notSeenSinceHours.as[Int].?,
-      'sortBy.as[SortBy].?,
+      'sortBy.as[DeviceSortBy].?,
+      'sortDirection.as[SortDirection].?,
       'offset.as(nonNegativeLong).?,
       'limit.as(nonNegativeLong).?).as(SearchParams.apply _) { params =>
-        entity(as[DeviceUuids]) { p =>
-          complete(db.run(DeviceRepository.search(ns, params, p.deviceUuids)))
-        } ~
-        complete(db.run(DeviceRepository.search(ns, params, Vector.empty)))
+        complete(db.run(DeviceRepository.search(ns, params)))
       }
 
   def createDevice(ns: Namespace, device: DeviceT): Route = {
@@ -155,8 +176,30 @@ class DevicesResource(
   def fetchDevice(uuid: DeviceId): Route =
     complete(db.run(DeviceRepository.findByUuid(uuid)))
 
+  def setDevice(ns: Namespace, uuid: DeviceId, updateDevice: SetDevice): Route =
+    complete(db.run(DeviceRepository.setDevice(ns, uuid, updateDevice.deviceName, updateDevice.notes)))
+
   def updateDevice(ns: Namespace, uuid: DeviceId, updateDevice: UpdateDevice): Route =
-    complete(db.run(DeviceRepository.updateDeviceName(ns, uuid, updateDevice.deviceName)))
+    complete(db.run(DeviceRepository.updateDevice(ns, uuid, updateDevice.deviceName, updateDevice.notes)))
+
+
+  def queryDevices(ns: Namespace, query: DevicesQuery): Future[List[Device]] = {
+    val oemDevices = query.oemIds.getOrElse(List.empty[DeviceOemId])
+    val uuidDevices = query.deviceUuids.getOrElse(List.empty[DeviceId])
+    for {
+      foundOemDevices <- db.run(DeviceRepository.findByOemIds(ns, oemDevices))
+      foundUuidDevices <- db.run(DeviceRepository.findByDeviceUuids(ns, uuidDevices))
+    } yield {
+      val foundDevices = (foundOemDevices ++ foundUuidDevices).toSet.toList
+      val missingOemDevices = oemDevices.filter(expected => !foundOemDevices.map(_.deviceId).contains(expected))
+      val missingUuidDevices = uuidDevices.filter(expected => !foundUuidDevices.map(_.uuid).contains(expected))
+      if(missingOemDevices.nonEmpty || missingUuidDevices.nonEmpty) {
+        val msg = Map("missingOemIds" -> missingOemDevices.map(_.underlying).mkString(","), "missingDeviceUuids" -> missingUuidDevices.map(_.uuid).mkString(","))
+        throw JsonError(Codes.MissingDevice, StatusCodes.NotFound, msg.asJson, "Devices not found")
+      }
+      foundDevices
+    }
+  }
 
   def countDynamicGroupCandidates(ns: Namespace, expression: GroupExpression): Route =
     complete(db.run(DeviceRepository.countDevicesForExpression(ns, expression)))
@@ -294,6 +337,9 @@ class DevicesResource(
         (path("stats") & parameters('correlationId.as[CorrelationId], 'reportLevel.as[InstallationStatsLevel].?)) {
           (cid, reportLevel) => fetchInstallationStats(cid, reportLevel)
         } ~
+        (pathEnd & entity(as[DevicesQuery])) { devicesQuery =>
+          complete(queryDevices(ns, devicesQuery))
+        } ~
         pathEnd {
           searchDevice(ns)
         }
@@ -325,7 +371,10 @@ class DevicesResource(
             fetchDevice(uuid)
           }
         } ~
-        (put & pathEnd & entity(as[UpdateDevice])) { updateBody =>
+        (put & pathEnd & entity(as[SetDevice])) { setBody =>
+          setDevice(ns, uuid, setBody)
+        } ~
+        (patch & pathEnd & entity(as[UpdateDevice])) { updateBody =>
           updateDevice(ns, uuid, updateBody)
         } ~
         (patch & path("device_tags") & entity(as[UpdateTagValue])) { utv =>

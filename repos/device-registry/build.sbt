@@ -34,10 +34,10 @@ lazy val library =
     object Version {
       val attoCore = "0.9.5"
       val scalaTest  = "3.2.9"
-      val libAts     = "2.0.3"
-      val libTuf = "0.8.1-26-gbdfd97a-SNAPSHOT"
-      val akka = "2.6.17"
-      val akkaHttp = "10.2.6"
+      val libAts     = "2.0.10"
+      val libTuf = "1.0.1"
+      val akka = "2.6.18"
+      val akkaHttp = "10.2.8"
       val alpakkaCsv = "2.0.0"
       val mariaDb = "2.7.3"
       val circe = "0.14.1"
@@ -106,17 +106,13 @@ lazy val gitSettings = Seq(
     git.useGitDescribe := true,
   )
 
-import com.typesafe.sbt.packager.docker.Cmd
 lazy val dockerSettings = Seq(
   dockerRepository := Some("advancedtelematic"),
   packageName := packageName.value,
-  dockerBaseImage := "advancedtelematic/alpine-jre:adoptopenjdk-jre8u262-b10",
+  dockerBaseImage := "eclipse-temurin:17.0.3_7-jre-jammy",
   dockerUpdateLatest := true,
   dockerAliases ++= Seq(dockerAlias.value.withTag(git.formattedShaVersion.value)),
-  dockerCommands ++= Seq(
-    Cmd("USER", "root"),
-    Cmd("USER", (Docker / daemonUser).value)
-  )
+  Docker / daemonUser := "daemon"
 )
 
 lazy val buildInfoSettings = Seq(

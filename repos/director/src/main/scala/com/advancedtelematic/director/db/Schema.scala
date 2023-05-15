@@ -122,7 +122,7 @@ object Schema {
     def createdAt = column[Instant]("created_at")
     def inFlight = column[Boolean]("in_flight")
 
-    def * = (namespace, deviceId, ecuId, ecuTargetId, correlationId, inFlight) <> ((Assignment.apply _).tupled, Assignment.unapply)
+    def * = (namespace, deviceId, ecuId, ecuTargetId, correlationId, inFlight, createdAt) <> ((Assignment.apply _).tupled, Assignment.unapply)
 
     def pk = primaryKey("assignments_pk", (deviceId, ecuId))
   }

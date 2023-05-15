@@ -1,9 +1,5 @@
 set global max_connections=0;
 
-create database if not exists campaigner;
-create user if not exists 'campaigner'@'%' identified by 'campaigner';
-grant all privileges on `campaigner%`.* to 'campaigner'@'%';
-
 create database if not exists device_registry;
 create user if not exists 'device_registry'@'%' identified by 'device_registry';
 grant all privileges on `device_registry%`.* to 'device_registry'@'%';

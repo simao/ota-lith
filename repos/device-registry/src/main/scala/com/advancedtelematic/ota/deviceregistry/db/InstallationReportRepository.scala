@@ -122,20 +122,4 @@ object InstallationReportRepository {
   def installationReports(deviceId: DeviceId, offset: Long, limit: Long)
                          (implicit ec: ExecutionContext): DBIO[PaginationResult[Json]] =
     queryInstallationHistory(deviceId).paginateResult(offset, limit)
-
-  def fetchDeviceFailures(correlationId: CorrelationId, failureCode: Option[ResultCode])
-                         (implicit ec: ExecutionContext): DBIO[Seq[(DeviceOemId, ResultCode, ResultDescription)]] =
-      deviceInstallationResults
-        .filter(_.correlationId === correlationId)
-        .filter(_.success === false)
-        .maybeFilter(_.resultCode === failureCode)
-        .join(DeviceRepository.devices)
-        .on(_.deviceUuid === _.uuid)
-        .map { case (r, d) => (d.deviceId, r.resultCode, r.installationReport) }
-        .result
-        .map(_.map { case (deviceOemId, resultCode, report) => (
-          deviceOemId,
-          resultCode,
-          report.as[DeviceUpdateCompleted].fold(_ => ResultDescription(""), _.result.description))
-        })
 }

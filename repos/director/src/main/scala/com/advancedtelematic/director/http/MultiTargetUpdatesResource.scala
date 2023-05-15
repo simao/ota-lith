@@ -9,7 +9,9 @@ import com.advancedtelematic.libats.http.UUIDKeyAkka._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import com.advancedtelematic.director.data.Codecs._
 import com.advancedtelematic.director.db.MultiTargetUpdates
+import com.advancedtelematic.director.http.Errors.InvalidMtu
 import com.advancedtelematic.libats.data.DataType.Namespace
+
 import scala.concurrent.ExecutionContext
 import com.advancedtelematic.libats.codecs.CirceCodecs._
 
@@ -28,6 +30,10 @@ class MultiTargetUpdatesResource(extractNamespace: Directive1[Namespace])(implic
       } ~
       (post & pathEnd) {
         entity(as[MultiTargetUpdate]) { mtuRequest =>
+          if(mtuRequest.targets.isEmpty) {
+            throw InvalidMtu("targets cannot be empty")
+          }
+
           val f = multiTargetUpdates.create(ns, mtuRequest).map {
             StatusCodes.Created -> _
           }

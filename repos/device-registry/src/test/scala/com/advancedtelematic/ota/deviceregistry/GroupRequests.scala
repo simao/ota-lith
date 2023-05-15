@@ -18,7 +18,7 @@ import com.advancedtelematic.ota.deviceregistry.data.Device.DeviceOemId
 import com.advancedtelematic.ota.deviceregistry.data.Group.GroupId
 import com.advancedtelematic.ota.deviceregistry.data.Group.GroupId._
 import com.advancedtelematic.ota.deviceregistry.data.GroupType.GroupType
-import com.advancedtelematic.ota.deviceregistry.data.SortBy.SortBy
+import com.advancedtelematic.ota.deviceregistry.data.GroupSortBy.GroupSortBy
 import com.advancedtelematic.ota.deviceregistry.data.{GroupExpression, GroupName, GroupType}
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import io.circe.Json
@@ -60,7 +60,7 @@ trait GroupRequests {
   def countDevicesInGroup(groupId: GroupId)(implicit ec: ExecutionContext): HttpRequest =
     Get(Resource.uri(groupsApi, groupId.show, "count"))
 
-  def listGroups(sortBy: Option[SortBy] = None, limit : Option[Long] = None, nameContains: Option[String] = None): HttpRequest = {
+  def listGroups(sortBy: Option[GroupSortBy] = None, limit : Option[Long] = None, nameContains: Option[String] = None): HttpRequest = {
     val m = List("sortBy" -> sortBy, "limit" -> limit, "nameContains" -> nameContains).collect { case (k, Some(v)) => k -> v.toString }.toMap
     Get(Resource.uri(groupsApi).withQuery(Query(m)))
   }

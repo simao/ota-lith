@@ -1,13 +1,13 @@
 name := "ota-lith"
 organization := "io.github.uptane"
-scalaVersion := "2.12.12"
+scalaVersion := "2.12.14"
 
 updateOptions := updateOptions.value.withLatestSnapshots(false)
 
 libraryDependencies ++= {
   val bouncyCastleV = "1.69"
-  val akkaV = "2.6.17"
-  val akkaHttpV = "10.2.6"
+  val akkaV = "2.6.18"
+  val akkaHttpV = "10.2.8"
 
   Seq(
     "org.bouncycastle" % "bcprov-jdk15on" % bouncyCastleV,
@@ -21,12 +21,11 @@ libraryDependencies ++= {
 
 lazy val treehub = (ProjectRef(file("./repos/treehub"), "treehub"))
 lazy val device_registry = (ProjectRef(file("./repos/device-registry"), "ota-device-registry"))
-lazy val campaigner = (ProjectRef(file("./repos/campaigner"), "campaigner"))
 lazy val director = (ProjectRef(file("./repos/director"), "director"))
 lazy val keyserver = (ProjectRef(file("./repos/ota-tuf"), "keyserver"))
 lazy val reposerver = (ProjectRef(file("./repos/ota-tuf"), "reposerver"))
 
-dependsOn(treehub, device_registry, campaigner, director, keyserver, reposerver)
+dependsOn(treehub, device_registry, director, keyserver, reposerver)
 
 enablePlugins(BuildInfoPlugin, GitVersioning, JavaAppPackaging)
 
@@ -39,7 +38,6 @@ import com.typesafe.sbt.packager.docker._
 import sbt.Keys._
 import com.typesafe.sbt.SbtNativePackager.Docker
 import DockerPlugin.autoImport._
-import com.typesafe.sbt.SbtGit.git
 import com.typesafe.sbt.SbtNativePackager.autoImport._
 import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
 

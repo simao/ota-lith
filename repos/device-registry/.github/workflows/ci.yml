@@ -1,5 +1,5 @@
 name: Test & Build
-on: [push]
+on: [push, pull_request]
 env:
   SBT_OPTS: "-Dsbt.color=true -Dscala.color=true"
 jobs:
@@ -23,5 +23,8 @@ jobs:
       - uses: actions/checkout@v2
       - name: Coursier cache
         uses: coursier/cache-action@v6
+      - uses: coursier/setup-action@v1
+        with:
+          jvm: 'temurin:1.17.0.3'
       - run: ./deploy/ci-db-setup.sh db
       - run: sbt test

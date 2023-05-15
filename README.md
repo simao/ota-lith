@@ -25,7 +25,6 @@ The following forks/branches are included:
 - tuf https://github.com/uptane/ota-tuf
 - director https://github.com/uptane/director
 - device-registry https://github.com/uptane/ota-device-registry
-- campaigner https://github.com/simao/campaigner
 - treehub https://github.com/uptane/treehub
 - libats https://github.com/uptane/libats
 
@@ -97,7 +96,6 @@ If you don't have kafka or mariadb running and just want to try ota-ce, run usin
 0.0.0.0         director.ota.ce
 0.0.0.0         treehub.ota.ce
 0.0.0.0         deviceregistry.ota.ce
-0.0.0.0         campaigner.ota.ce
 0.0.0.0         app.ota.ce
 0.0.0.0         ota.ce
 ```
@@ -164,8 +162,8 @@ frequently and docker images are built and pushed to
 ota-lith. This is usually just a case of updating the docker tags used
 and creating the containers again.
 
-However, `webapp` and `campaigner` projects are not part of the UPTANE
-repositories and they are independently maintained by HERE Technologies
+However, the `webapp` project is not part of the UPTANE
+repositories and is independently maintained by HERE Technologies
 GmbH. These changes might or might not be merged back into `ota-lith`,
 depending on the complexity of merging the changes.
 
