@@ -5,7 +5,7 @@ stages:
 
 variables:
   DOCKER_TLS_CERTDIR: ""
-  DOCKER_HOST: tcp://localhost:2375
+  DOCKER_HOST: tcp://docker:2375
   DOCKER_DRIVER: overlay2
   MYSQL_ROOT_PASSWORD: "root"
   MYSQL_DATABASE: "ota_treehub"
@@ -16,7 +16,7 @@ variables:
   ARTIFACTORY_URL: https://artifactory-horw.int.toradex.com/artifactory
   SERVICE: treehub
 
-image: artifactory-horw.int.toradex.com/ota-docker-dev-horw/tdx-inno-ci-scala:0.0.1
+image: harbor-dev.int.toradex.com/ota-docker-dev-horw/tdx-inno-ci-scala:0.0.1
 
 services:
   - name: docker:dind
@@ -68,5 +68,3 @@ build docker image:
   variables:
     ARTIFACTORY_REPO: ota-docker-dev-horw
     SERVICE_NAME: treehub
-
-

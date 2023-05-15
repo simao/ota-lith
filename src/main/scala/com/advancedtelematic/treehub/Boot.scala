@@ -12,7 +12,7 @@ import com.advancedtelematic.libats.messaging.MessageBus
 import com.advancedtelematic.libats.slick.db.{BootMigrations, CheckMigrations, DatabaseSupport}
 import com.advancedtelematic.libats.slick.monitoring.DatabaseMetrics
 import com.advancedtelematic.metrics.prometheus.PrometheusMetricsSupport
-import com.advancedtelematic.metrics.{AkkaHttpRequestMetrics, MetricsSupport}
+import com.advancedtelematic.metrics.{AkkaHttpConnectionMetrics, AkkaHttpRequestMetrics, MetricsSupport}
 import com.advancedtelematic.treehub.daemon.StaleObjectArchiveActor
 import com.advancedtelematic.treehub.delta_store.{LocalDeltaStorage, S3DeltaStorage}
 import com.advancedtelematic.treehub.http.TreeHubRoutes
@@ -35,6 +35,7 @@ class TreehubBoot(override val globalConfig: Config,
     with MetricsSupport
     with DatabaseMetrics
     with AkkaHttpRequestMetrics
+    with AkkaHttpConnectionMetrics
     with PrometheusMetricsSupport
     with CheckMigrations
     with VersionInfo
@@ -95,7 +96,7 @@ class TreehubBoot(override val globalConfig: Config,
           }
       }
 
-    Http().newServerAt(host, port).bindFlow(routes)
+    Http().newServerAt(host, port).bindFlow(withConnectionMetrics(routes, metricRegistry))
   }
 }
 
