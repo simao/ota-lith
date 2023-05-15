@@ -84,9 +84,6 @@ services:
       - traefik.http.routers.deviceregistry.service=deviceregistry
       - traefik.http.routers.deviceregistry.rule=Host(`deviceregistry.ota.ce`)
       - traefik.http.services.deviceregistry.loadbalancer.server.port=7500
-      - traefik.http.routers.campaigner.service=campaigner
-      - traefik.http.routers.campaigner.rule=Host(`campaigner.ota.ce`)
-      - traefik.http.services.campaigner.loadbalancer.server.port=7600
     volumes:
       - ./ota-lith-ce.conf:/tmp/ota-lith.conf
       - objects:/var/lib/ota-lith

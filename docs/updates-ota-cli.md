@@ -10,7 +10,7 @@ In the following instructions, the uuids used are outputs from previous commands
 
 # Setup ota-cli
 
-    ota init --campaigner http://campaigner.ota.ce --director http://director.ota.ce --registry http://deviceregistry.ota.ce --credentials path/to/credentials.zip -t http://reposerver.ota.ce
+    ota init --director http://director.ota.ce --registry http://deviceregistry.ota.ce --credentials path/to/credentials.zip -t http://reposerver.ota.ce
 
 # Add the package
 
@@ -40,23 +40,6 @@ method = "sha256"
 
 # Serving the update
 
-Choose one of the following:
+ota update create -t examples/targets-ota-ce.toml
 
-
-## Without a campaign
-
-    ota update create -t examples/targets-ota-ce.toml
-
-    ota update launch --update f3b7950c-97d0-44ef-8ee9-93158b8f0f0f --device 5a04529c-3f30-418b-b8e8-92bfcc36f54b
-
-## With a campaign
-
-    ota group create -n esc-dev-group
-
-    ota group add --group 1c15b3f3-2fae-4f66-ae22-1de4603d8eb9 --device 5a04529c-3f30-418b-b8e8-92bfcc36f54b
-
-    ota campaign createupdate --description to-mypkg --name to-mypkg --update f3b7950c-97d0-44ef-8ee9-93158b8f0f0f
-
-    ota campaign create --update 395b9142-6468-4a36-b519-ec5a304dbfd4 --name esc-campaign-01 -g 1c15b3f3-2fae-4f66-ae22-1de4603d8eb9
-
-    ota campaign launch --campaign cc1eb168-3906-4d75-99c5-ee25c09657f5
+ota update launch --update f3b7950c-97d0-44ef-8ee9-93158b8f0f0f --device 5a04529c-3f30-418b-b8e8-92bfcc36f54b

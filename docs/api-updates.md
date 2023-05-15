@@ -57,42 +57,6 @@ POST http://director.ota.ce/api/v1/multi_target_updates
 
 Save the response uuid
 
-# Create update
+# Launch the Multi Target Update
 
-Use id from previous step here.
-
-POST http://campaigner.ota.ce/api/v2/updates
-
-    {
-      "updateSource": {
-        "id": "39a20483-fcb2-4cd0-a7ca-6c1774235bd4",
-        "sourceType": "multi_target"
-      },
-      "name": "esc-upd-01",
-      "description": "esc-upd-01"
-    }
-
-Save response uuid
-
-# Create campaign
-
-Use uuid here
-
-POST http://campaigner.ota.ce/api/v2/campaigns
-
-    {
-      "name": "esc-campaign-01",
-      "update": "62a675fa-fed0-4b70-b1c5-e38a65a313ac",
-      "groups": [
-        ":group id uuid from above"
-      ],
-      "approvalNeeded": false
-    }
-
-Save response uuid
-
-# Launch campaign
-
-Use id here
-
-`POST http://campaigner.ota.ce/api/v2/campaigns/77db80b3-7397-4a6c-bb74-b08900493baf/launch`
+POST http://director.ota.ce/api/v1/admin/devices/:device_id/multi_target_update/:multi-target-uuid
